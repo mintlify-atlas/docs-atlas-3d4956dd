@@ -1,0 +1,166 @@
+---
+title: "Global options"
+description: "Configure CryptoClients.Net globally and per exchange"
+---
+
+`GlobalExchangeOptions` lets you set common settings once and have them apply to every exchange client. Any option you set globally can still be overridden per exchange by passing an exchange-specific options delegate.
+
+## Setting options in code
+
+Pass an `Action<GlobalExchangeOptions>` delegate to `AddCryptoClients`:
+
+```csharp
+builder.Services.AddCryptoClients(globalOptions =>
+{
+    globalOptions.OutputOriginalData = true;
+    globalOptions.RequestTimeout = TimeSpan.FromSeconds(30);
+    globalOptions.RateLimiterEnabled = true;
+    globalOptions.RateLimitingBehaviour = RateLimitingBehaviour.Wait;
+    globalOptions.CachingEnabled = true;
+    globalOptions.ApiCredentials = new ExchangeCredentials
+    {
+        Binance = new BinanceCredentials("BinanceKey", "BinanceSecret"),
+        Kucoin = new KucoinCredentials("KucoinKey", "KucoinSecret", "KucoinPassphrase"),
+        OKX = new OKXCredentials("OKXKey", "OKXSecret", "OKXPassphrase")
+    };
+});
+```
+
+## Setting options via appsettings.json
+
+Pass a configuration section to `AddCryptoClients` to load settings from `appsettings.json`:
+
+```csharp
+builder.Services.AddCryptoClients(builder.Configuration.GetSection("CryptoClients"));
+```
+
+Global options are read from the top-level `CryptoClients` object. Exchange-specific overrides are nested under the exchange name. The following example shows a full configuration file:
+
+```json
+{
+  "CryptoClients": {
+    "Proxy": {
+      "Host": "http://localhost",
+      "Port": 8080
+    },
+    "OutputOriginalData": true,
+    "RequestTime": "00:00:30",
+    "RateLimiterEnabled": true,
+    "RateLimiterBehaviour": "Wait",
+    "CachingEnabled": true,
+    "ReconnectPolicy": "FixedDelay",
+    "ReconnectInterval": "00:00:05",
+    "Binance": {
+      "ApiCredentials": {
+        "HMAC": {
+          "Key": "123",
+          "Secret": "456"
+        }
+      },
+      "Environment": { "Name": "live" },
+      "AllowAppendingClientOrderId": true,
+      "Rest": {
+        "OutputOriginalData": true,
+        "ReceiveWindow": "00:00:05"
+      },
+      "Socket": {
+        "OutputOriginalData": false,
+        "SpotOptions": {
+          "SocketNoDataConnection": "00:01:00"
+        }
+      }
+    },
+    "OKX": {
+      "ApiCredentials": {
+        "Key": "789",
+        "Secret": "101",
+        "Passphrase": "000"
+      },
+      "Rest": {
+        "OutputOriginalData": false
+      }
+    }
+  }
+}
+```
+
+## Per-exchange overrides
+
+Each exchange has a dedicated options parameter on `AddCryptoClients`. Exchange-specific options always take precedence over global options.
+
+```csharp
+builder.Services.AddCryptoClients(
+    globalOptions =>
+    {
+        globalOptions.OutputOriginalData = true;
+    },
+    bybitOptions: bybitOptions =>
+    {
+        // Overrides the global OutputOriginalData for Bybit
+        bybitOptions.Environment = BybitEnvironment.Eu;
+        bybitOptions.ApiCredentials = new BybitCredentials("BybitKey", "BybitSecret");
+    },
+    binanceOptions: binanceOptions =>
+    {
+        binanceOptions.Rest.RequestTimeout = TimeSpan.FromSeconds(10);
+    }
+);
+```
+
+Available exchange-specific parameters: `asterOptions`, `binanceOptions`, `bingxOptions`, `bitfinexOptions`, `bitgetOptions`, `bitMartOptions`, `bitMEXOptions`, `bitstampOptions`, `bloFinOptions`, `bybitOptions`, `coinbaseOptions`, `coinExOptions`, `coinWOptions`, `coinGeckoOptions`, `cryptoComOptions`, `deepCoinOptions`, `gateIoOptions`, `htxOptions`, `hyperLiquidOptions`, `krakenOptions`, `kucoinOptions`, `mexcOptions`, `okxOptions`, `polymarketOptions`, `toobitOptions`, `upbitOptions`, `whiteBitOptions`, `xtOptions`.
+
+## Global options reference
+
+<ParamField path="OutputOriginalData" type="bool?">
+  When `true`, the `CallResult` and `DataEvent` objects include the raw JSON
+  received from the exchange in the `OriginalData` property. Useful for
+  debugging. Defaults to `false`.
+</ParamField>
+
+<ParamField path="Proxy" type="ApiProxy?">
+  HTTP proxy settings applied to all REST and WebSocket connections. Set `Host`,
+  `Port`, and optionally `Login` and `Password`.
+</ParamField>
+
+<ParamField path="RequestTimeout" type="TimeSpan?">
+  Maximum time a single REST request is allowed to take before it is cancelled.
+  Applies to both REST and WebSocket request/response operations.
+</ParamField>
+
+<ParamField path="RateLimiterEnabled" type="bool?">
+  Enables or disables client-side rate limiting. When enabled, the client tracks
+  request counts and delays outgoing requests to stay within exchange limits.
+  Defaults to `true`.
+</ParamField>
+
+<ParamField path="RateLimitingBehaviour" type="RateLimitingBehaviour?">
+  What happens when a rate limit is reached. `Wait` queues the request until the
+  limit window resets. `Fail` returns an error immediately.
+</ParamField>
+
+<ParamField path="CachingEnabled" type="bool?">
+  Enables client-side caching for REST GET requests. Repeated identical requests
+  within the cache window return the cached result without a network call.
+  Defaults to `false`.
+</ParamField>
+
+<ParamField path="ApiCredentials" type="ExchangeCredentials?">
+  API credentials for one or more exchanges. Set typed credential objects per
+  exchange. See [API credentials](/configuration/credentials) for details.
+</ParamField>
+
+<ParamField path="ApiEnvironments" type="Dictionary<string, string?>?">
+  Per-exchange environment name to use (e.g. `"testnet"`, `"live"`). Keys are
+  exchange names such as `"Binance"` or `"Bybit"`. See
+  [Environments](/configuration/environments) for details.
+</ParamField>
+
+<ParamField path="ReconnectPolicy" type="ReconnectPolicy?">
+  Reconnect strategy for WebSocket connections. Common values are `FixedDelay`
+  and `ExponentialBackoff`.
+</ParamField>
+
+<ParamField path="ReconnectInterval" type="TimeSpan?">
+  Time to wait between WebSocket reconnect attempts. Used when
+  `ReconnectPolicy` is `FixedDelay`.
+</ParamField>

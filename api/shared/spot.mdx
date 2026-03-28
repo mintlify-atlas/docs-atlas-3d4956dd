@@ -1,0 +1,764 @@
+---
+title: "Spot shared interfaces"
+description: "Exchange-agnostic interfaces for spot trading"
+---
+
+The shared spot interfaces expose a consistent, exchange-agnostic API surface for spot trading operations. Each interface is implemented by one or more exchange clients and can be retrieved from `IExchangeRestClient` by name, by trading mode, or across all exchanges at once.
+
+## SharedSymbol
+
+All shared spot requests use `SharedSymbol` to identify a trading pair in a portable way:
+
+```csharp
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+```
+
+## Retrieving interface clients
+
+Each interface has three access patterns on `IExchangeRestClient`:
+
+```csharp
+// Get the client for a single exchange (returns null if not supported)
+ISpotTickerRestClient? client = restClient.GetSpotTickerClient("Binance");
+
+// Get clients for all exchanges that implement the interface
+IEnumerable<ISpotTickerRestClient> clients = restClient.GetSpotTickerClients();
+```
+
+<Note>
+Methods that return `IEnumerable` only include exchanges that actually implement the interface. Not every exchange supports every interface.
+</Note>
+
+---
+
+<AccordionGroup>
+
+<Accordion title="ISpotTickerRestClient">
+
+Retrieve 24-hour price ticker data for spot symbols.
+
+**Client access**
+
+```csharp
+// Single exchange
+ISpotTickerRestClient? client = restClient.GetSpotTickerClient("Binance");
+
+// All exchanges
+IEnumerable<ISpotTickerRestClient> clients = restClient.GetSpotTickerClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// Single symbol on a specific exchange
+Task<ExchangeWebResult<SharedSpotTicker>> GetSpotTickerAsync(
+    string exchange,
+    GetTickerRequest request,
+    CancellationToken ct = default);
+
+// Single symbol across all (or filtered) exchanges — wait for all
+Task<ExchangeWebResult<SharedSpotTicker>[]> GetSpotTickerAsync(
+    GetTickerRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// Single symbol across all exchanges — stream results as they arrive
+IAsyncEnumerable<ExchangeWebResult<SharedSpotTicker>> GetSpotTickerAsyncEnumerable(
+    GetTickerRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// All symbols on a specific exchange
+Task<ExchangeWebResult<SharedSpotTicker[]>> GetSpotTickerAsync(
+    string exchange,
+    GetTickersRequest request,
+    CancellationToken ct = default);
+
+// All symbols across all (or filtered) exchanges — wait for all
+Task<ExchangeWebResult<SharedSpotTicker[]>[]> GetSpotTickersAsync(
+    GetTickersRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// All symbols across all exchanges — stream results as they arrive
+IAsyncEnumerable<ExchangeWebResult<SharedSpotTicker[]>> GetSpotTickersAsyncEnumerable(
+    GetTickersRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+// Fetch ETH/USDT ticker from Binance
+var ticker = await restClient.GetSpotTickerAsync("Binance",
+    new GetTickerRequest(new SharedSymbol(TradingMode.Spot, "ETH", "USDT")));
+
+// Fetch ETH/USDT ticker from every supporting exchange simultaneously
+await foreach (var result in restClient.GetSpotTickerAsyncEnumerable(
+    new GetTickerRequest(new SharedSymbol(TradingMode.Spot, "ETH", "USDT"))))
+{
+    Console.WriteLine($"{result.Exchange}: {result.Data?.LastPrice}");
+}
+```
+
+</Accordion>
+
+<Accordion title="ISpotSymbolRestClient">
+
+List all available spot trading pairs on an exchange.
+
+**Client access**
+
+```csharp
+ISpotSymbolRestClient? client = restClient.GetSpotSymbolClient("Binance");
+IEnumerable<ISpotSymbolRestClient> clients = restClient.GetSpotSymbolClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// All symbols on a specific exchange
+Task<ExchangeWebResult<SharedSpotSymbol[]>> GetSpotSymbolsAsync(
+    string exchange,
+    GetSymbolsRequest request,
+    CancellationToken ct = default);
+
+// All symbols across all (or filtered) exchanges — wait for all
+Task<ExchangeWebResult<SharedSpotSymbol[]>[]> GetSpotSymbolsAsync(
+    GetSymbolsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// All symbols across all exchanges — stream results as they arrive
+IAsyncEnumerable<ExchangeWebResult<SharedSpotSymbol[]>> GetSpotSymbolsAsyncEnumerable(
+    GetSymbolsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// Helper: find which exchanges list a symbol with a given base asset
+Task<Dictionary<string, SharedSymbol[]>> GetSpotSymbolsForBaseAssetAsync(string baseAsset);
+Task<ExchangeResult<SharedSymbol[]>> GetSpotSymbolsForBaseAssetAsync(string exchange, string baseAsset);
+
+// Helper: find which exchanges support a specific symbol
+Task<string[]> GetExchangesSupportingSpotSymbolAsync(string symbolName);
+Task<string[]> GetExchangesSupportingSpotSymbolAsync(SharedSymbol symbol);
+Task<ExchangeResult<bool>> SupportsSpotSymbolAsync(string exchange, SharedSymbol symbol);
+```
+
+**Example**
+
+```csharp
+// All exchanges that list BTC as a base asset
+var byExchange = await restClient.GetSpotSymbolsForBaseAssetAsync("BTC");
+foreach (var (exchange, symbols) in byExchange)
+    Console.WriteLine($"{exchange}: {symbols.Length} BTC pairs");
+```
+
+</Accordion>
+
+<Accordion title="ISpotOrderRestClient">
+
+Place, retrieve, and cancel spot orders, as well as query trade history.
+
+**Client access**
+
+```csharp
+ISpotOrderRestClient? client = restClient.GetSpotOrderClient("Binance");
+IEnumerable<ISpotOrderRestClient> clients = restClient.GetSpotOrderClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// Place a new spot order
+Task<ExchangeWebResult<SharedId>> PlaceSpotOrderAsync(
+    string exchange,
+    PlaceSpotOrderRequest request,
+    CancellationToken ct = default);
+
+// Retrieve a specific order by exchange order id
+Task<ExchangeWebResult<SharedSpotOrder>> GetSpotOrderAsync(
+    string exchange,
+    GetOrderRequest request,
+    CancellationToken ct = default);
+
+// Retrieve all fills for a specific order
+Task<ExchangeWebResult<SharedUserTrade[]>> GetSpotOrderTradesAsync(
+    string exchange,
+    GetOrderTradesRequest request,
+    CancellationToken ct = default);
+
+// Cancel an open spot order
+Task<ExchangeWebResult<SharedId>> CancelSpotOrderAsync(
+    string exchange,
+    CancelOrderRequest request,
+    CancellationToken ct = default);
+
+// Get open orders (optionally filtered to a symbol)
+Task<ExchangeWebResult<SharedSpotOrder[]>> GetSpotOpenOrdersAsync(
+    string exchange,
+    GetOpenOrdersRequest request,
+    CancellationToken ct = default);
+
+// Get closed/historical orders for a symbol
+Task<ExchangeWebResult<SharedSpotOrder[]>> GetSpotClosedOrdersAsync(
+    string exchange,
+    GetClosedOrdersRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+// Get user trade history for a symbol
+Task<ExchangeWebResult<SharedUserTrade[]>> GetSpotUserTradesAsync(
+    string exchange,
+    GetUserTradesRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+// Place a market buy order for 0.1 ETH
+var order = await restClient.PlaceSpotOrderAsync("Binance", new PlaceSpotOrderRequest(
+    symbol,
+    SharedOrderSide.Buy,
+    SharedOrderType.Market,
+    quantity: 0.1m));
+
+// Cancel the order
+await restClient.CancelSpotOrderAsync("Binance",
+    new CancelOrderRequest(symbol, order.Data.Id));
+```
+
+</Accordion>
+
+<Accordion title="ISpotOrderClientIdRestClient">
+
+Retrieve or cancel spot orders using a client-assigned order ID rather than the exchange's own order ID.
+
+**Client access**
+
+```csharp
+ISpotOrderClientIdRestClient? client = restClient.GetSpotOrderClientIdClient("Binance");
+IEnumerable<ISpotOrderClientIdRestClient> clients = restClient.GetSpotOrderClientIdClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// Retrieve an order by client order id
+Task<ExchangeWebResult<SharedSpotOrder>> GetSpotOrderByClientOrderIdAsync(
+    string exchange,
+    GetOrderRequest request,
+    CancellationToken ct = default);
+
+// Cancel an order by client order id
+Task<ExchangeWebResult<SharedId>> CancelSpotOrderByClientOrderIdAsync(
+    string exchange,
+    CancelOrderRequest request,
+    CancellationToken ct = default);
+```
+
+**Generating a client order id**
+
+```csharp
+string? clientOrderId = restClient.GenerateClientOrderId(TradingMode.Spot, "Binance");
+```
+
+</Accordion>
+
+<Accordion title="ISpotTriggerOrderRestClient">
+
+Place and cancel spot trigger (stop) orders that execute when the market reaches a specified price.
+
+**Client access**
+
+```csharp
+ISpotTriggerOrderRestClient? client = restClient.GetSpotTriggerOrderClient("Binance");
+IEnumerable<ISpotTriggerOrderRestClient> clients = restClient.GetSpotTriggerOrderClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// Place a spot order that triggers at a specific price
+Task<ExchangeWebResult<SharedId>> PlaceSpotTriggerOrderAsync(
+    string exchange,
+    PlaceSpotTriggerOrderRequest request,
+    CancellationToken ct = default);
+
+// Cancel a pending spot trigger order
+Task<ExchangeWebResult<SharedId>> CancelSpotTriggerOrderAsync(
+    string exchange,
+    CancelOrderRequest request,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IBalanceRestClient">
+
+Retrieve account balances. Supports filtering by trading mode or account type.
+
+**Client access**
+
+```csharp
+// All exchanges
+IEnumerable<IBalanceRestClient> clients = restClient.GetBalancesClients();
+
+// Filter by trading mode
+IEnumerable<IBalanceRestClient> spotClients = restClient.GetBalancesClients(TradingMode.Spot);
+
+// Filter by account type
+IEnumerable<IBalanceRestClient> fundingClients = restClient.GetBalancesClients(SharedAccountType.Funding);
+
+// Single exchange by trading mode
+IBalanceRestClient? client = restClient.GetBalancesClient(TradingMode.Spot, "Binance");
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// Balances from a specific exchange
+Task<ExchangeWebResult<SharedBalance[]>> GetBalancesAsync(
+    string exchange,
+    GetBalancesRequest request,
+    CancellationToken ct = default);
+
+// Balances from all (or filtered) exchanges — wait for all
+Task<ExchangeWebResult<SharedBalance[]>[]> GetBalancesAsync(
+    GetBalancesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// Stream as results arrive
+IAsyncEnumerable<ExchangeWebResult<SharedBalance[]>> GetBalancesAsyncEnumerable(
+    GetBalancesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var balances = await restClient.GetBalancesAsync("Binance",
+    new GetBalancesRequest(TradingMode.Spot));
+
+foreach (var b in balances.Data ?? [])
+    Console.WriteLine($"{b.Asset}: {b.Available}");
+```
+
+</Accordion>
+
+<Accordion title="IKlineRestClient">
+
+Fetch OHLCV candlestick (kline) data. Supports pagination via `PageRequest`.
+
+**Client access**
+
+```csharp
+IKlineRestClient? client = restClient.GetKlineClient(TradingMode.Spot, "Binance");
+IEnumerable<IKlineRestClient> clients = restClient.GetKlineClients();
+IEnumerable<IKlineRestClient> spotClients = restClient.GetKlineClients(TradingMode.Spot);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedKline[]>> GetKlinesAsync(
+    string exchange,
+    GetKlinesRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedKline[]>[]> GetKlinesAsync(
+    GetKlinesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedKline[]>> GetKlinesAsyncEnumerable(
+    GetKlinesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var klines = await restClient.GetKlinesAsync("Binance", new GetKlinesRequest(
+    new SharedSymbol(TradingMode.Spot, "BTC", "USDT"),
+    SharedKlineInterval.OneHour,
+    startTime: DateTime.UtcNow.AddDays(-7)));
+```
+
+</Accordion>
+
+<Accordion title="IOrderBookRestClient">
+
+Retrieve a snapshot of the current order book for a symbol.
+
+**Client access**
+
+```csharp
+IOrderBookRestClient? client = restClient.GetOrderBookClient(TradingMode.Spot, "Binance");
+IEnumerable<IOrderBookRestClient> clients = restClient.GetOrderBookClients();
+IEnumerable<IOrderBookRestClient> spotClients = restClient.GetOrderBookClients(TradingMode.Spot);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedOrderBook>> GetOrderBookAsync(
+    string exchange,
+    GetOrderBookRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedOrderBook>[]> GetOrderBookAsync(
+    GetOrderBookRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedOrderBook>> GetOrderBookAsyncEnumerable(
+    GetOrderBookRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var book = await restClient.GetOrderBookAsync("Binance", new GetOrderBookRequest(
+    new SharedSymbol(TradingMode.Spot, "BTC", "USDT"),
+    limit: 20));
+
+Console.WriteLine($"Best bid: {book.Data?.Bids.First().Price}");
+Console.WriteLine($"Best ask: {book.Data?.Asks.First().Price}");
+```
+
+</Accordion>
+
+<Accordion title="IRecentTradeRestClient">
+
+Fetch the most recent public trades executed on the exchange.
+
+**Client access**
+
+```csharp
+IRecentTradeRestClient? client = restClient.GetRecentTradesClient(TradingMode.Spot, "Binance");
+IEnumerable<IRecentTradeRestClient> clients = restClient.GetRecentTradesClients();
+IEnumerable<IRecentTradeRestClient> spotClients = restClient.GetRecentTradesClients(TradingMode.Spot);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedTrade[]>> GetRecentTradesAsync(
+    string exchange,
+    GetRecentTradesRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedTrade[]>[]> GetRecentTradesAsync(
+    GetRecentTradesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedTrade[]>> GetRecentTradesAsyncEnumerable(
+    GetRecentTradesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="ITradeHistoryRestClient">
+
+Fetch historical public trade data. Supports pagination.
+
+**Client access**
+
+```csharp
+ITradeHistoryRestClient? client = restClient.GetTradeHistoryClient(TradingMode.Spot, "Binance");
+IEnumerable<ITradeHistoryRestClient> clients = restClient.GetTradeHistoryClients();
+IEnumerable<ITradeHistoryRestClient> spotClients = restClient.GetTradeHistoryClients(TradingMode.Spot);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedTrade[]>> GetTradeHistoryAsync(
+    string exchange,
+    GetTradeHistoryRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedTrade[]>[]> GetTradeHistoryAsync(
+    GetTradeHistoryRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedTrade[]>> GetTradeHistoryAsyncEnumerable(
+    GetTradeHistoryRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IDepositRestClient">
+
+Retrieve deposit history for the authenticated account.
+
+**Client access**
+
+```csharp
+IDepositRestClient? client = restClient.GetDepositsClient("Binance");
+IEnumerable<IDepositRestClient> clients = restClient.GetDepositsClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedDeposit[]>> GetDepositsAsync(
+    string exchange,
+    GetDepositsRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedDeposit[]>[]> GetDepositsAsync(
+    GetDepositsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedDeposit[]>> GetDepositsAsyncEnumerable(
+    GetDepositsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IWithdrawalRestClient">
+
+Retrieve withdrawal history for the authenticated account.
+
+**Client access**
+
+```csharp
+IWithdrawalRestClient? client = restClient.GetWithdrawalsClient("Binance");
+IEnumerable<IWithdrawalRestClient> clients = restClient.GetWithdrawalsClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedWithdrawal[]>> GetWithdrawalsAsync(
+    string exchange,
+    GetWithdrawalsRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedWithdrawal[]>[]> GetWithdrawalsAsync(
+    GetWithdrawalsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedWithdrawal[]>> GetWithdrawalsAsyncEnumerable(
+    GetWithdrawalsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IWithdrawRestClient">
+
+Submit a withdrawal request.
+
+**Client access**
+
+```csharp
+IWithdrawRestClient? client = restClient.GetWithdrawClient("Binance");
+IEnumerable<IWithdrawRestClient> clients = restClient.GetWithdrawClients();
+```
+
+</Accordion>
+
+<Accordion title="IAssetsRestClient">
+
+Query asset (coin) information such as networks, decimals, and withdrawal/deposit status.
+
+**Client access**
+
+```csharp
+IAssetsRestClient? client = restClient.GetAssetClient("Binance");
+IEnumerable<IAssetsRestClient> clients = restClient.GetAssetsClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// All assets
+Task<ExchangeWebResult<SharedAsset[]>> GetAssetsAsync(
+    string exchange,
+    GetAssetsRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedAsset[]>[]> GetAssetsAsync(
+    GetAssetsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// Single asset
+Task<ExchangeWebResult<SharedAsset>> GetAssetAsync(
+    string exchange,
+    GetAssetRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedAsset>[]> GetAssetAsync(
+    GetAssetRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IFeeRestClient">
+
+Retrieve maker and taker trading fee rates for a symbol.
+
+**Client access**
+
+```csharp
+IFeeRestClient? client = restClient.GetFeeClient(TradingMode.Spot, "Binance");
+IEnumerable<IFeeRestClient> clients = restClient.GetFeeClients();
+IEnumerable<IFeeRestClient> spotClients = restClient.GetFeeClients(TradingMode.Spot);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedFee>> GetFeesAsync(
+    string exchange,
+    GetFeeRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedFee>[]> GetFeesAsync(
+    GetFeeRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedFee>> GetFeesAsyncEnumerable(
+    GetFeeRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IBookTickerRestClient">
+
+Retrieve the best bid and ask price and quantity for a symbol.
+
+**Client access**
+
+```csharp
+IBookTickerRestClient? client = restClient.GetBookTickerClient(TradingMode.Spot, "Binance");
+IEnumerable<IBookTickerRestClient> clients = restClient.GetBookTickerClients();
+IEnumerable<IBookTickerRestClient> spotClients = restClient.GetBookTickerClients(TradingMode.Spot);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedBookTicker>> GetBookTickerAsync(
+    string exchange,
+    GetBookTickerRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedBookTicker>[]> GetBookTickersAsync(
+    GetBookTickerRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedBookTicker>> GetBookTickersAsyncEnumerable(
+    GetBookTickerRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IListenKeyRestClient">
+
+Start, keep-alive, and stop listen keys used for authenticated WebSocket user data streams.
+
+**Client access**
+
+```csharp
+IListenKeyRestClient? client = restClient.GetListenKeyClient(TradingMode.Spot, "Binance");
+IEnumerable<IListenKeyRestClient> clients = restClient.GetListenKeyClients();
+IEnumerable<IListenKeyRestClient> spotClients = restClient.GetListenKeyClients(TradingMode.Spot);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<string>> StartListenKeyAsync(
+    string exchange,
+    StartListenKeyRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<string>> KeepAliveListenKeyAsync(
+    string exchange,
+    KeepAliveListenKeyRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<string>> StopListenKeyAsync(
+    string exchange,
+    StopListenKeyRequest request,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="ITransferRestClient">
+
+Transfer assets between different account types on the same exchange (e.g. spot to futures).
+
+**Client access**
+
+```csharp
+// Requires specifying both the source and destination account types
+ITransferRestClient? client = restClient.GetTransferClient(
+    "Binance",
+    SharedAccountType.Spot,
+    SharedAccountType.UsdtFutures);
+
+IEnumerable<ITransferRestClient> clients = restClient.GetTransferClients();
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedId>> TransferAsync(
+    string exchange,
+    TransferRequest request,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var result = await restClient.TransferAsync("Binance", new TransferRequest(
+    "USDT",
+    100m,
+    SharedAccountType.Spot,
+    SharedAccountType.UsdtFutures));
+```
+
+</Accordion>
+
+</AccordionGroup>

@@ -1,0 +1,210 @@
+---
+title: "ExchangeOrderBookFactory"
+description: "Factory for creating and managing live order books"
+---
+
+`ExchangeOrderBookFactory` (interface: `IExchangeOrderBookFactory`) creates locally-maintained `ISymbolOrderBook` instances that stay in sync with an exchange's order book in real time via WebSocket.
+
+Inject `IExchangeOrderBookFactory` through dependency injection or resolve it from the service container after calling `services.AddCryptoClients()`.
+
+## Methods
+
+### `Create(SharedSymbol, ...)`
+
+Create a live order book for a symbol across **all** exchanges (or a specified subset) that support that symbol.
+
+<ParamField body="symbol" type="SharedSymbol" required>
+  The symbol to create order books for. Use `TradingMode.Spot`, `TradingMode.PerpetualLinear`, etc. to specify the market.
+</ParamField>
+
+<ParamField body="minimalDepth" type="int?">
+  Minimum number of price levels to maintain on each side. The factory selects the smallest depth tier supported by the exchange that satisfies this requirement. If the requested depth exceeds all supported tiers, the largest available tier is used. Pass `null` for the exchange default.
+</ParamField>
+
+<ParamField body="exchanges" type="IEnumerable<string>?">
+  Optional list of exchange names to restrict the result to. When omitted, order books are created for every exchange that supports the symbol.
+</ParamField>
+
+<ParamField body="exchangeParameters" type="ExchangeParameters?">
+  Exchange-specific parameters. For example, Bitget requires a `ProductType` parameter (`"UsdtFutures"` or `"UsdcFutures"`).
+</ParamField>
+
+**Returns** `ISymbolOrderBook[]` — one entry per supporting exchange.
+
+```csharp
+// BTC/USDT order book on every supporting exchange, at least 20 levels deep
+ISymbolOrderBook[] books = factory.Create(
+    new SharedSymbol(TradingMode.Spot, "BTC", "USDT"),
+    minimalDepth: 20);
+
+foreach (var book in books)
+{
+    await book.StartAsync();
+    Console.WriteLine($"{book.Symbol}  bid={book.BestBid?.Price}  ask={book.BestAsk?.Price}");
+}
+```
+
+---
+
+### `Create(string exchange, SharedSymbol, ...)`
+
+Create a live order book for a symbol on a **specific** exchange.
+
+<ParamField body="exchange" type="string" required>
+  The exchange name (e.g. `"Binance"`, `"Bybit"`, `"OKX"`).
+</ParamField>
+
+<ParamField body="symbol" type="SharedSymbol" required>
+  The symbol to subscribe to.
+</ParamField>
+
+<ParamField body="minimalDepth" type="int?">
+  Minimum order book depth. See the description above.
+</ParamField>
+
+<ParamField body="exchangeParameters" type="ExchangeParameters?">
+  Exchange-specific parameters.
+</ParamField>
+
+**Returns** `ISymbolOrderBook?` — `null` if the exchange does not support the symbol or trading mode.
+
+```csharp
+ISymbolOrderBook? book = factory.Create("Binance",
+    new SharedSymbol(TradingMode.Spot, "ETH", "USDT"),
+    minimalDepth: 10);
+
+if (book != null)
+{
+    await book.StartAsync();
+
+    // Access the order book
+    Console.WriteLine($"Best bid: {book.BestBid?.Price}");
+    Console.WriteLine($"Best ask: {book.BestAsk?.Price}");
+
+    // Or iterate all levels
+    foreach (var bid in book.Bids)
+        Console.WriteLine($"  {bid.Price} x {bid.Quantity}");
+}
+```
+
+---
+
+## Exchange-specific factories
+
+Each exchange has a dedicated factory property with exchange-native `Create` methods that expose exchange-specific options not available through the shared API.
+
+| Property | Type |
+|---|---|
+| `Aster` | `IAsterOrderBookFactory` |
+| `Binance` | `IBinanceOrderBookFactory` |
+| `BingX` | `IBingXOrderBookFactory` |
+| `Bitfinex` | `IBitfinexOrderBookFactory` |
+| `Bitget` | `IBitgetOrderBookFactory` |
+| `BitMart` | `IBitMartOrderBookFactory` |
+| `BitMEX` | `IBitMEXOrderBookFactory` |
+| `Bitstamp` | `IBitstampOrderBookFactory` |
+| `BloFin` | `IBloFinOrderBookFactory` |
+| `Bybit` | `IBybitOrderBookFactory` |
+| `Coinbase` | `ICoinbaseOrderBookFactory` |
+| `CoinEx` | `ICoinExOrderBookFactory` |
+| `CoinW` | `ICoinWOrderBookFactory` |
+| `CryptoCom` | `ICryptoComOrderBookFactory` |
+| `DeepCoin` | `IDeepCoinOrderBookFactory` |
+| `GateIo` | `IGateIoOrderBookFactory` |
+| `HTX` | `IHTXOrderBookFactory` |
+| `HyperLiquid` | `IHyperLiquidOrderBookFactory` |
+| `Kraken` | `IKrakenOrderBookFactory` |
+| `Kucoin` | `IKucoinOrderBookFactory` |
+| `Mexc` | `IMexcOrderBookFactory` |
+| `OKX` | `IOKXOrderBookFactory` |
+| `Polymarket` | `IPolymarketOrderBookFactory` |
+| `Toobit` | `IToobitOrderBookFactory` |
+| `Upbit` | `IUpbitOrderBookFactory` |
+| `WhiteBit` | `IWhiteBitOrderBookFactory` |
+| `XT` | `IXTOrderBookFactory` |
+
+**Example — exchange-native factory**
+
+```csharp
+// Binance spot order book with exchange-native options
+var book = factory.Binance.Create(
+    new SharedSymbol(TradingMode.Spot, "BTC", "USDT"),
+    opts =>
+    {
+        opts.Limit = 20;
+        opts.UpdateInterval = 100; // ms
+    });
+
+await book.StartAsync();
+```
+
+## Supported depths by exchange
+
+The `minimalDepth` parameter is mapped to the nearest supported tier for each exchange. The table below shows supported levels; `null` indicates the full order book is available.
+
+| Exchange | Supported depth levels |
+|---|---|
+| Aster | 5, 10, 20 (or full) |
+| Binance | 5, 10, 20 (or full) |
+| BingX | 5, 10, 20, 50, 100 |
+| Bitfinex | 1, 25, 100, 250 |
+| Bitget | 5, 15 (or full) |
+| BitMart | 5, 20, 50 (or full) |
+| BitMEX | 25 (or full) |
+| Bitstamp | Full |
+| BloFin | 5, 400 |
+| Bybit | 1, 50, 200, 1000 |
+| Coinbase | Full |
+| CoinEx | 5, 10, 20, 50 |
+| CoinW | Full |
+| CryptoCom | 10, 50 |
+| DeepCoin | Full |
+| GateIo | 20, 50, 100 (or full) |
+| HTX | 5, 20, 150, 400 (or full) |
+| HyperLiquid | Full |
+| Kraken | 10, 25, 100, 500, 1000 |
+| Kucoin | 5, 50 (or full) |
+| Mexc | 5, 10, 20 (or full) |
+| OKX | 1, 5, 400 (or full) |
+| Toobit | Full |
+| Upbit | 1, 5, 15, 30 |
+| WhiteBit | 1, 5, 10, 20, 30, 50, 100 (or full) |
+| XT | 5, 10, 20, 50 (or full) |
+
+<Note>
+When `minimalDepth` is set higher than all supported levels, the largest fixed tier is used unless the exchange supports a full order book, in which case `null` (full) is used.
+</Note>
+
+## Full usage example
+
+```csharp
+using CryptoClients.Net;
+using CryptoExchange.Net.SharedApis;
+
+// Via dependency injection
+var factory = serviceProvider.GetRequiredService<IExchangeOrderBookFactory>();
+
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+// Create and start order books on Binance and Bybit
+var books = factory.Create(symbol, minimalDepth: 10,
+    exchanges: ["Binance", "Bybit"]);
+
+foreach (var book in books)
+    await book.StartAsync();
+
+// Wait for initial snapshot
+await Task.Delay(2000);
+
+foreach (var book in books)
+{
+    Console.WriteLine($"[{book.Symbol}]");
+    Console.WriteLine($"  Best bid: {book.BestBid?.Price}");
+    Console.WriteLine($"  Best ask: {book.BestAsk?.Price}");
+    Console.WriteLine($"  Spread:   {book.BestAsk?.Price - book.BestBid?.Price}");
+}
+
+// Clean up
+foreach (var book in books)
+    await book.StopAsync();
+```

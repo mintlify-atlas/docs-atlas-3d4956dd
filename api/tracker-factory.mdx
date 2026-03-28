@@ -1,0 +1,418 @@
+---
+title: "ExchangeTrackerFactory"
+description: "Factory for creating live data trackers"
+---
+
+`ExchangeTrackerFactory` (interface: `IExchangeTrackerFactory`) creates live data trackers that maintain a rolling, in-memory dataset fed by WebSocket streams. Three types of trackers are available:
+
+- **Kline tracker** — maintains a sliding window of OHLCV candles
+- **Trade tracker** — maintains a sliding window of recent public trades
+- **User data tracker** — maintains real-time account state (balances, orders, positions)
+
+Inject `IExchangeTrackerFactory` through dependency injection after calling `services.AddCryptoClients()`.
+
+---
+
+## Kline tracker
+
+### `CreateKlineTracker`
+
+<ParamField body="exchange" type="string" required>
+  Exchange name (e.g. `"Binance"`, `"Bybit"`).
+</ParamField>
+
+<ParamField body="symbol" type="SharedSymbol" required>
+  The symbol to track.
+</ParamField>
+
+<ParamField body="interval" type="SharedKlineInterval" required>
+  Candlestick interval (e.g. `SharedKlineInterval.OneHour`, `SharedKlineInterval.FiveMinutes`).
+</ParamField>
+
+<ParamField body="limit" type="int?">
+  Maximum number of candles to keep in memory. When reached, the oldest candle is evicted. Pass `null` for no limit.
+</ParamField>
+
+<ParamField body="period" type="TimeSpan?">
+  Maximum age of candles to keep. Candles older than this are discarded. Pass `null` for no time limit.
+</ParamField>
+
+<ParamField body="exchangeParameters" type="ExchangeParameters?">
+  Exchange-specific parameters.
+</ParamField>
+
+**Returns** `IKlineTracker?` — `null` if the exchange does not support kline tracking for the given symbol.
+
+```csharp
+var tracker = factory.CreateKlineTracker(
+    "Binance",
+    new SharedSymbol(TradingMode.Spot, "BTC", "USDT"),
+    SharedKlineInterval.OneHour,
+    limit: 100);
+
+if (tracker != null)
+{
+    await tracker.StartAsync();
+
+    // Access current candles
+    foreach (var kline in tracker.Klines)
+        Console.WriteLine($"{kline.OpenTime:u}  O={kline.OpenPrice}  C={kline.ClosePrice}");
+}
+```
+
+---
+
+## Trade tracker
+
+### `CreateTradeTracker`
+
+<ParamField body="exchange" type="string" required>
+  Exchange name.
+</ParamField>
+
+<ParamField body="symbol" type="SharedSymbol" required>
+  The symbol to track.
+</ParamField>
+
+<ParamField body="limit" type="int?">
+  Maximum number of trades to keep in memory.
+</ParamField>
+
+<ParamField body="period" type="TimeSpan?">
+  Maximum age of trades to retain.
+</ParamField>
+
+<ParamField body="exchangeParameters" type="ExchangeParameters?">
+  Exchange-specific parameters.
+</ParamField>
+
+**Returns** `ITradeTracker?` — `null` if the exchange does not support trade tracking for the symbol.
+
+```csharp
+var tracker = factory.CreateTradeTracker(
+    "Bybit",
+    new SharedSymbol(TradingMode.PerpetualLinear, "ETH", "USDT"),
+    limit: 500,
+    period: TimeSpan.FromMinutes(5));
+
+if (tracker != null)
+{
+    await tracker.StartAsync();
+
+    foreach (var trade in tracker.Trades)
+        Console.WriteLine($"{trade.Timestamp:u}  {trade.Price} x {trade.Quantity}  {trade.Side}");
+}
+```
+
+---
+
+## Spot user data tracker
+
+User data trackers require authentication. There are two modes: **shared credentials** (credentials were already set on the client at startup) and **explicit credentials** (passed at tracker creation time, useful for multi-user/multi-account scenarios).
+
+### `CreateUserSpotDataTracker` — shared credentials (single exchange)
+
+<ParamField body="exchange" type="string" required>
+  Exchange name.
+</ParamField>
+
+<ParamField body="config" type="SpotUserDataTrackerConfig?">
+  Optional configuration for the tracker.
+</ParamField>
+
+**Returns** `IUserSpotDataTracker?`
+
+```csharp
+var tracker = factory.CreateUserSpotDataTracker("Binance");
+if (tracker != null)
+{
+    await tracker.StartAsync();
+    Console.WriteLine($"USDT balance: {tracker.Balances["USDT"]?.Available}");
+}
+```
+
+---
+
+### `CreateUserSpotDataTrackers` — shared credentials (all or filtered exchanges)
+
+<ParamField body="config" type="SpotUserDataTrackerConfig?">
+  Optional tracker configuration.
+</ParamField>
+
+<ParamField body="exchanges" type="string[]?">
+  Optional list of exchange names to restrict to. When omitted, trackers are created for all supporting exchanges.
+</ParamField>
+
+**Returns** `IUserSpotDataTracker[]`
+
+```csharp
+// Create trackers for all exchanges that were configured with credentials
+var trackers = factory.CreateUserSpotDataTrackers();
+foreach (var t in trackers)
+    await t.StartAsync();
+```
+
+---
+
+### `CreateUserSpotDataTracker` — explicit credentials (single exchange)
+
+<ParamField body="exchange" type="string" required>
+  Exchange name.
+</ParamField>
+
+<ParamField body="userIdentifier" type="string" required>
+  An arbitrary string that uniquely identifies this user/account (used for internal keying).
+</ParamField>
+
+<ParamField body="credentials" type="ExchangeCredentials" required>
+  Credentials object containing credentials for the specified exchange.
+</ParamField>
+
+<ParamField body="config" type="SpotUserDataTrackerConfig?">
+  Optional tracker configuration.
+</ParamField>
+
+<ParamField body="environment" type="string?">
+  Optional environment name (e.g. `"Live"`, `"Testnet"`). Uses the exchange default when omitted.
+</ParamField>
+
+**Returns** `IUserSpotDataTracker?`
+
+```csharp
+var credentials = new ExchangeCredentials
+{
+    Binance = new BinanceCredentials("api-key", "api-secret")
+};
+
+var tracker = factory.CreateUserSpotDataTracker(
+    "Binance",
+    userIdentifier: "user-42",
+    credentials: credentials);
+```
+
+---
+
+### `CreateUserSpotDataTracker` — explicit credentials (all or filtered exchanges)
+
+<ParamField body="userIdentifier" type="string" required>
+  Unique identifier for the user.
+</ParamField>
+
+<ParamField body="credentials" type="ExchangeCredentials" required>
+  Credentials for each exchange.
+</ParamField>
+
+<ParamField body="config" type="SpotUserDataTrackerConfig?">
+  Optional tracker configuration.
+</ParamField>
+
+<ParamField body="environments" type="Dictionary<string, string>?">
+  Per-exchange environment names.
+</ParamField>
+
+<ParamField body="exchanges" type="string[]?">
+  Restrict to a subset of exchanges.
+</ParamField>
+
+**Returns** `IUserSpotDataTracker[]`
+
+---
+
+## Futures user data tracker
+
+### `CreateUserFuturesDataTracker` — shared credentials (single exchange)
+
+<ParamField body="exchange" type="string" required>
+  Exchange name.
+</ParamField>
+
+<ParamField body="tradeMode" type="TradingMode" required>
+  The futures trading mode (e.g. `TradingMode.PerpetualLinear`, `TradingMode.PerpetualInverse`).
+</ParamField>
+
+<ParamField body="config" type="FuturesUserDataTrackerConfig?">
+  Optional tracker configuration.
+</ParamField>
+
+<ParamField body="exchangeParameters" type="ExchangeParameters?">
+  Exchange-specific parameters. Some exchanges require additional parameters:
+  - **Bitget**: `"ProductType"` → `"UsdtFutures"` or `"UsdcFutures"`
+  - **GateIo**: `"SettleAsset"` (e.g. `"usdt"`) and `"UserId"` (numeric)
+  - **HTX**: `"MarginMode"` → `SharedMarginMode.Isolated` or `SharedMarginMode.Cross`
+</ParamField>
+
+**Returns** `IUserFuturesDataTracker?`
+
+```csharp
+var tracker = factory.CreateUserFuturesDataTracker(
+    "Binance",
+    TradingMode.PerpetualLinear);
+
+if (tracker != null)
+{
+    await tracker.StartAsync();
+    foreach (var position in tracker.Positions)
+        Console.WriteLine($"{position.Symbol}  qty={position.Quantity}  pnl={position.UnrealizedPnl}");
+}
+```
+
+---
+
+### `CreateUserFuturesDataTrackers` — shared credentials (all or filtered exchanges)
+
+<ParamField body="tradeMode" type="TradingMode" required>
+  Futures trading mode.
+</ParamField>
+
+<ParamField body="config" type="FuturesUserDataTrackerConfig?">
+  Optional tracker configuration.
+</ParamField>
+
+<ParamField body="exchangeParameters" type="ExchangeParameters?">
+  Exchange-specific parameters.
+</ParamField>
+
+<ParamField body="exchanges" type="string[]?">
+  Restrict to a subset of exchanges.
+</ParamField>
+
+**Returns** `IUserFuturesDataTracker[]`
+
+---
+
+### `CreateUserFuturesDataTracker` — explicit credentials (single exchange)
+
+<ParamField body="exchange" type="string" required>
+  Exchange name.
+</ParamField>
+
+<ParamField body="tradeMode" type="TradingMode" required>
+  Futures trading mode.
+</ParamField>
+
+<ParamField body="userIdentifier" type="string" required>
+  Unique identifier for the user/account.
+</ParamField>
+
+<ParamField body="credentials" type="ExchangeCredentials" required>
+  Credentials.
+</ParamField>
+
+<ParamField body="config" type="FuturesUserDataTrackerConfig?">
+  Optional tracker configuration.
+</ParamField>
+
+<ParamField body="environment" type="string?">
+  Optional environment name.
+</ParamField>
+
+<ParamField body="exchangeParameters" type="ExchangeParameters?">
+  Exchange-specific parameters.
+</ParamField>
+
+**Returns** `IUserFuturesDataTracker?`
+
+---
+
+### `CreateUserFuturesDataTracker` — explicit credentials (all or filtered exchanges)
+
+<ParamField body="userIdentifier" type="string" required>
+  Unique identifier for the user.
+</ParamField>
+
+<ParamField body="tradingMode" type="TradingMode" required>
+  Futures trading mode.
+</ParamField>
+
+<ParamField body="credentials" type="ExchangeCredentials" required>
+  Credentials for each exchange.
+</ParamField>
+
+<ParamField body="config" type="FuturesUserDataTrackerConfig?">
+  Optional configuration.
+</ParamField>
+
+<ParamField body="environments" type="Dictionary<string, string>?">
+  Per-exchange environment names.
+</ParamField>
+
+<ParamField body="exchanges" type="string[]?">
+  Restrict to a subset of exchanges.
+</ParamField>
+
+**Returns** `IUserFuturesDataTracker[]`
+
+---
+
+## Exchange-specific tracker factories
+
+Each exchange exposes a typed tracker factory with exchange-native tracker creation methods.
+
+| Property | Type |
+|---|---|
+| `Aster` | `IAsterTrackerFactory` |
+| `Binance` | `IBinanceTrackerFactory` |
+| `BingX` | `IBingXTrackerFactory` |
+| `Bitfinex` | `IBitfinexTrackerFactory` |
+| `Bitget` | `IBitgetTrackerFactory` |
+| `BitMart` | `IBitMartTrackerFactory` |
+| `BitMEX` | `IBitMEXTrackerFactory` |
+| `Bitstamp` | `IBitstampTrackerFactory` |
+| `BloFin` | `IBloFinTrackerFactory` |
+| `Bybit` | `IBybitTrackerFactory` |
+| `Coinbase` | `ICoinbaseTrackerFactory` |
+| `CoinEx` | `ICoinExTrackerFactory` |
+| `CoinW` | `ICoinWTrackerFactory` |
+| `CryptoCom` | `ICryptoComTrackerFactory` |
+| `DeepCoin` | `IDeepCoinTrackerFactory` |
+| `GateIo` | `IGateIoTrackerFactory` |
+| `HTX` | `IHTXTrackerFactory` |
+| `HyperLiquid` | `IHyperLiquidTrackerFactory` |
+| `Kraken` | `IKrakenTrackerFactory` |
+| `Kucoin` | `IKucoinTrackerFactory` |
+| `Mexc` | `IMexcTrackerFactory` |
+| `OKX` | `IOKXTrackerFactory` |
+| `Toobit` | `IToobitTrackerFactory` |
+| `Upbit` | `IUpbitTrackerFactory` |
+| `WhiteBit` | `IWhiteBitTrackerFactory` |
+| `XT` | `IXTTrackerFactory` |
+
+<Note>
+Polymarket does not have a tracker factory and is absent from this list.
+</Note>
+
+## Full usage example
+
+```csharp
+using CryptoClients.Net;
+using CryptoExchange.Net.SharedApis;
+
+var factory = serviceProvider.GetRequiredService<IExchangeTrackerFactory>();
+
+// --- Kline tracker ---
+var klineTracker = factory.CreateKlineTracker(
+    "Binance",
+    new SharedSymbol(TradingMode.Spot, "BTC", "USDT"),
+    SharedKlineInterval.FifteenMinutes,
+    limit: 96); // 24 hours of 15m candles
+
+await klineTracker!.StartAsync();
+
+// --- Trade tracker ---
+var tradeTracker = factory.CreateTradeTracker(
+    "Bybit",
+    new SharedSymbol(TradingMode.PerpetualLinear, "ETH", "USDT"),
+    period: TimeSpan.FromMinutes(10));
+
+await tradeTracker!.StartAsync();
+
+// --- Spot user data tracker (using pre-configured credentials) ---
+var userTracker = factory.CreateUserSpotDataTracker("Binance");
+await userTracker!.StartAsync();
+
+await Task.Delay(2000);
+
+Console.WriteLine($"Latest candle close: {klineTracker.Klines.LastOrDefault()?.ClosePrice}");
+Console.WriteLine($"Recent trades: {tradeTracker.Trades.Count}");
+Console.WriteLine($"USDT balance: {userTracker.Balances.GetValueOrDefault("USDT")?.Available}");
+```

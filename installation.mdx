@@ -1,0 +1,114 @@
+---
+title: "Installation"
+description: "Install CryptoClients.Net via NuGet or GitHub Packages"
+---
+
+CryptoClients.Net is distributed as a NuGet package. It includes all supported exchange libraries as transitive dependencies — you don't need to install them separately.
+
+## Install via NuGet
+
+<Tabs>
+  <Tab title=".NET CLI">
+    ```bash
+    dotnet add package CryptoClients.Net
+    ```
+  </Tab>
+  <Tab title="Package Manager Console">
+    ```powershell
+    Install-Package CryptoClients.Net
+    ```
+  </Tab>
+  <Tab title="PackageReference">
+    Add the following to your `.csproj` file:
+
+    ```xml
+    <ItemGroup>
+      <PackageReference Include="CryptoClients.Net" Version="4.7.0" />
+    </ItemGroup>
+    ```
+  </Tab>
+</Tabs>
+
+## Install via GitHub Packages
+
+CryptoClients.Net is also available on [GitHub Packages](https://github.com/JKorf/CryptoClients.Net/pkgs/nuget/CryptoClients.Net) as an alternative to NuGet.org.
+
+**Step 1.** Add the GitHub Packages source to your NuGet configuration:
+
+```bash
+dotnet nuget add source https://nuget.pkg.github.com/JKorf/index.json \
+  --name github-jkorf \
+  --username YOUR_GITHUB_USERNAME \
+  --password YOUR_GITHUB_PAT
+```
+
+<Note>
+  GitHub Packages requires authentication even for public packages. You'll need a [personal access token](https://github.com/settings/tokens) with at least `read:packages` scope.
+</Note>
+
+**Step 2.** Install the package as normal, specifying the source if needed:
+
+```bash
+dotnet add package CryptoClients.Net --source github-jkorf
+```
+
+## Download a release manually
+
+If you prefer to reference the assembly directly without a package manager, download the latest release from GitHub:
+
+```
+https://github.com/JKorf/CryptoClients.Net/releases
+```
+
+## Supported target frameworks
+
+CryptoClients.Net targets the following frameworks:
+
+| Framework | Version |
+|---|---|
+| .NET Standard | 2.0, 2.1 |
+| .NET | 8.0, 9.0, 10.0 |
+
+## Platform compatibility
+
+Because the package targets .NET Standard 2.0, it works across a wide range of .NET implementations:
+
+| Platform | Minimum version |
+|---|---|
+| .NET Core | 2.0 |
+| .NET Framework | 4.6.1 |
+| Mono | 5.4 |
+| Xamarin.iOS | 10.14 |
+| Xamarin.Android | 8.0 |
+| UWP | 10.0.16299 |
+| Unity | 2018.1 |
+
+<Tip>
+  For the best performance and access to the latest language features, target .NET 8.0 or later. The .NET Standard 2.0 target is available for environments where upgrading is not possible.
+</Tip>
+
+## Verify the installation
+
+After installing, add a quick sanity check to confirm the package loads correctly:
+
+```csharp
+using CryptoClients.Net;
+using CryptoExchange.Net.SharedApis;
+
+var client = new ExchangeRestClient();
+Console.WriteLine("CryptoClients.Net loaded successfully.");
+Console.WriteLine($"Supported exchanges: {string.Join(", ", Exchanges.All)}");
+```
+
+If this compiles and runs without errors, you're ready to go.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Make your first multi-exchange request
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/options">
+    Configure API credentials, rate limiting, and environments
+  </Card>
+</CardGroup>

@@ -1,0 +1,118 @@
+---
+title: "Supported exchanges"
+description: "All exchanges supported by CryptoClients.Net"
+---
+
+CryptoClients.Net supports **26 exchanges** and additional platform integrations. Each exchange is backed by a dedicated NuGet library that follows the naming convention `{Exchange}.Net`.
+
+## Centralized exchanges (CEX)
+
+| Exchange | NuGet library | Passphrase required |
+|----------|---------------|---------------------|
+| Binance | `Binance.Net` | No |
+| BingX | `BingX.Net` | No |
+| Bitfinex | `Bitfinex.Net` | No |
+| Bitget | `Bitget.Net` | Yes |
+| BitMart | `BitMart.Net` | Yes |
+| BitMEX | `BitMEX.Net` | No |
+| Bitstamp | `Bitstamp.Net` | No |
+| BloFin | `BloFin.Net` | Yes |
+| Bybit | `Bybit.Net` | No |
+| Coinbase | `Coinbase.Net` | No |
+| CoinEx | `CoinEx.Net` | No |
+| CoinW | `CoinW.Net` | No |
+| Crypto.com | `CryptoCom.Net` | No |
+| DeepCoin | `DeepCoin.Net` | Yes |
+| Gate.io | `GateIo.Net` | No |
+| HTX | `HTX.Net` | No |
+| Kraken | `Kraken.Net` | No |
+| Kucoin | `Kucoin.Net` | Yes |
+| Mexc | `Mexc.Net` | No |
+| OKX | `OKX.Net` | Yes |
+| Toobit | `Toobit.Net` | No |
+| Upbit | `Upbit.Net` | No |
+| WhiteBit | `WhiteBit.Net` | No |
+| XT | `XT.Net` | No |
+
+## Decentralized exchanges (DEX)
+
+| Exchange | NuGet library | Credential type |
+|----------|---------------|-----------------|
+| Aster | `Aster.Net` | Private key |
+| HyperLiquid | `HyperLiquid.Net` | Private key |
+
+## Platform integrations
+
+These are data platforms rather than trading exchanges. They are accessible through the REST client but do not appear in `Exchanges.All`.
+
+| Platform | NuGet library | Description |
+|----------|---------------|-------------|
+| CoinGecko | `CoinGecko.Net` | Market data and coin metadata |
+| Polymarket | `Polymarket.Net` | Prediction market data and trading |
+
+## Discovering exchange names
+
+Use the static `Exchanges` and `Platforms` classes to enumerate supported exchanges at runtime.
+
+```csharp
+// All supported exchanges (CEX + DEX, excludes non-exchange platforms)
+ExchangeInfo[] exchanges = Exchanges.All;
+
+// All platforms — includes all exchanges plus CoinGecko and Polymarket
+PlatformInfo[] platforms = Platforms.All;
+```
+
+### String constants
+
+The `Exchange` static class exposes each exchange name as a string constant, which you can use anywhere an exchange name `string` is expected:
+
+```csharp
+string name = Exchange.Binance;   // "Binance"
+string name = Exchange.Bybit;     // "Bybit"
+string name = Exchange.OKX;       // "OKX"
+string name = Exchange.HyperLiquid; // "HyperLiquid"
+```
+
+These constants are the canonical names used by all multi-exchange APIs.
+
+## Looking up exchange info
+
+Use `Exchanges.GetByName` to retrieve metadata for a specific exchange:
+
+```csharp
+ExchangeInfo? info = Exchanges.GetByName("Binance");
+
+if (info != null)
+{
+    Console.WriteLine(info.Name);         // "Binance"
+    Console.WriteLine(info.DisplayName);  // "Binance"
+    Console.WriteLine(info.Type);         // ExchangeType.CEX
+    Console.WriteLine(info.Url);          // "https://www.binance.com"
+    Console.WriteLine(info.ApiDocsUrl);   // API documentation URL
+
+    // Available API environments (e.g. Live, Testnet)
+    foreach (var env in info.ApiEnvironments)
+        Console.WriteLine(env.Name);
+}
+```
+
+### ExchangeInfo properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Name` | `string` | Canonical exchange identifier used in all APIs |
+| `DisplayName` | `string` | Human-readable name |
+| `Type` | `ExchangeType` | `CEX` or `DEX` |
+| `Url` | `string` | Exchange website URL |
+| `ApiDocsUrl` | `string` | Exchange API documentation URL |
+| `ImageUrl` | `string` | URL to exchange icon |
+| `ApiEnvironments` | `TradeEnvironment[]` | Available environments (e.g. `Live`, `Testnet`) |
+| `DynamicCredentialInfo` | `Func<TradingMode, DynamicCredentialInfo?>` | Describes the credential fields required by this exchange |
+
+## Referral links
+
+Several exchanges offer fee discounts when you register through a referral link. See the [GitHub README](https://github.com/JKorf/CryptoClients.Net#referral-links) for the full table of referral links and discount rates.
+
+<Note>
+Referral links are provided by the library author. Using them costs you nothing and helps support continued development of the library.
+</Note>

@@ -1,0 +1,484 @@
+---
+title: "ExchangeSocketClient"
+description: "API reference for the unified WebSocket client"
+---
+
+```csharp
+public class ExchangeSocketClient : IExchangeSocketClient
+```
+
+`ExchangeSocketClient` is the primary entry point for WebSocket API access across all supported exchanges. It manages connections and subscriptions and exposes each exchange's socket client as a typed property.
+
+## Constructors
+
+### Parameterless
+
+```csharp
+IExchangeSocketClient socketClient = new ExchangeSocketClient();
+```
+
+Creates a new instance with default options for all exchanges.
+
+### With per-exchange clients (advanced / DI)
+
+```csharp
+IExchangeSocketClient socketClient = new ExchangeSocketClient(
+    asterSocketClient,
+    binanceSocketClient,
+    // ... one argument per supported exchange
+);
+```
+
+Pass pre-configured exchange-specific socket client instances. This is how the dependency injection container wires clients when using `AddCryptoClients`.
+
+---
+
+## Properties
+
+### Connection metrics
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `IncomingKbps` | `double` | Incoming data rate in kilobytes per second across all connections |
+| `CurrentConnections` | `int` | Number of active WebSocket connections. A single connection can have multiple subscriptions |
+| `CurrentSubscriptions` | `int` | Total number of active subscriptions across all connections |
+
+### Exchange-specific socket clients
+
+Each property returns the typed interface for that exchange's WebSocket API.
+
+| Property | Type | Exchange |
+|----------|------|----------|
+| `Aster` | `IAsterSocketClient` | Aster (DEX) |
+| `Binance` | `IBinanceSocketClient` | Binance |
+| `BingX` | `IBingXSocketClient` | BingX |
+| `Bitfinex` | `IBitfinexSocketClient` | Bitfinex |
+| `Bitget` | `IBitgetSocketClient` | Bitget |
+| `BitMart` | `IBitMartSocketClient` | BitMart |
+| `BitMEX` | `IBitMEXSocketClient` | BitMEX |
+| `Bitstamp` | `IBitstampSocketClient` | Bitstamp |
+| `BloFin` | `IBloFinSocketClient` | BloFin |
+| `Bybit` | `IBybitSocketClient` | Bybit |
+| `Coinbase` | `ICoinbaseSocketClient` | Coinbase |
+| `CoinEx` | `ICoinExSocketClient` | CoinEx |
+| `CoinW` | `ICoinWSocketClient` | CoinW |
+| `CryptoCom` | `ICryptoComSocketClient` | Crypto.com |
+| `DeepCoin` | `IDeepCoinSocketClient` | DeepCoin |
+| `GateIo` | `IGateIoSocketClient` | Gate.io |
+| `HTX` | `IHTXSocketClient` | HTX |
+| `HyperLiquid` | `IHyperLiquidSocketClient` | HyperLiquid (DEX) |
+| `Kraken` | `IKrakenSocketClient` | Kraken |
+| `Kucoin` | `IKucoinSocketClient` | Kucoin |
+| `Mexc` | `IMexcSocketClient` | Mexc |
+| `OKX` | `IOKXSocketClient` | OKX |
+| `Polymarket` | `IPolymarketSocketClient` | Polymarket |
+| `Toobit` | `IToobitSocketClient` | Toobit |
+| `Upbit` | `IUpbitSocketClient` | Upbit |
+| `WhiteBit` | `IWhiteBitSocketClient` | WhiteBit |
+| `XT` | `IXTSocketClient` | XT |
+
+**Example:**
+
+```csharp
+var socketClient = new ExchangeSocketClient();
+
+// Exchange-specific subscription via typed property
+await socketClient.Binance.SpotApi.SubscribeToTradeUpdatesAsync(
+    "ETHUSDT", data => Console.WriteLine(data.Data.Price));
+```
+
+---
+
+## Credentials
+
+### SetApiCredentials(ExchangeCredentials)
+
+```csharp
+void SetApiCredentials(ExchangeCredentials credentials);
+```
+
+<ParamField body="credentials" type="ExchangeCredentials" required>
+  Exchange-specific credential instances. Only exchanges you populate are affected.
+</ParamField>
+
+### SetApiCredentials(string, DynamicCredentials)
+
+```csharp
+void SetApiCredentials(string exchange, DynamicCredentials credentials);
+```
+
+<ParamField body="exchange" type="string" required>
+  The canonical exchange name, e.g. `Exchange.Binance`.
+</ParamField>
+
+<ParamField body="credentials" type="DynamicCredentials" required>
+  The credential values for that exchange.
+</ParamField>
+
+---
+
+## Utility methods
+
+### GetSymbolName
+
+```csharp
+string? GetSymbolName(string exchange, SharedSymbol symbol);
+```
+
+Returns the exchange-native symbol string for a `SharedSymbol`.
+
+### GetExchangeSharedClients
+
+```csharp
+IEnumerable<ISharedClient> GetExchangeSharedClients(string exchange, TradingMode? tradingMode = null);
+```
+
+Returns all shared socket interface clients for a given exchange.
+
+---
+
+## Market data subscriptions
+
+All subscription methods follow a consistent two-overload pattern:
+- **Single exchange** — pass `string exchange` as the first argument, returns `Task<ExchangeResult<UpdateSubscription>>`
+- **Multi-exchange** — omit the exchange argument; pass an optional `IEnumerable<string>? exchanges` filter, returns `Task<ExchangeResult<UpdateSubscription>[]>`
+
+### SubscribeToAllTickerUpdatesAsync
+
+Subscribe to ticker updates for **all** symbols on one or many exchanges.
+
+```csharp
+// Single exchange
+Task<ExchangeResult<UpdateSubscription>> SubscribeToAllTickerUpdatesAsync(
+    string exchange,
+    SubscribeAllTickersRequest request,
+    Action<DataEvent<SharedSpotTicker[]>> handler,
+    CancellationToken ct = default);
+
+// Multi-exchange
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToAllTickerUpdatesAsync(
+    SubscribeAllTickersRequest request,
+    Action<DataEvent<SharedSpotTicker[]>> handler,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+<ParamField body="exchange" type="string">Single exchange name (single-exchange overload only)</ParamField>
+<ParamField body="request" type="SubscribeAllTickersRequest" required>Subscription request</ParamField>
+<ParamField body="handler" type="Action<DataEvent<SharedSpotTicker[]>>" required>Callback invoked on each update</ParamField>
+<ParamField body="exchanges" type="IEnumerable<string>?">Exchange filter; queries all exchanges when `null`</ParamField>
+<ParamField body="ct" type="CancellationToken">Cancellation token used to stop the subscription</ParamField>
+
+### SubscribeToTickerUpdatesAsync
+
+Subscribe to ticker updates for a **specific symbol**.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToTickerUpdatesAsync(
+    string exchange,
+    SubscribeTickerRequest request,
+    Action<DataEvent<SharedSpotTicker>> handler,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToTickerUpdatesAsync(
+    SubscribeTickerRequest request,
+    Action<DataEvent<SharedSpotTicker>> handler,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+**Example:**
+
+```csharp
+var socketClient = new ExchangeSocketClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+var subscriptions = await socketClient.SubscribeToTickerUpdatesAsync(
+    new SubscribeTickerRequest(symbol),
+    data => Console.WriteLine($"{data.Exchange} price: {data.Data.LastPrice}"),
+    [Exchange.Binance, Exchange.OKX, Exchange.Bybit]);
+```
+
+### SubscribeToTradeUpdatesAsync
+
+Subscribe to public trade updates for a symbol.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToTradeUpdatesAsync(
+    string exchange,
+    SubscribeTradeRequest request,
+    Action<DataEvent<SharedTrade[]>> handler,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToTradeUpdatesAsync(
+    SubscribeTradeRequest request,
+    Action<DataEvent<SharedTrade[]>> handler,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+### SubscribeToBookTickerUpdatesAsync
+
+Subscribe to best bid/ask price updates (book ticker) for a symbol.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToBookTickerUpdatesAsync(
+    string exchange,
+    SubscribeBookTickerRequest request,
+    Action<DataEvent<SharedBookTicker>> handler,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToBookTickerUpdatesAsync(
+    SubscribeBookTickerRequest request,
+    Action<DataEvent<SharedBookTicker>> handler,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+### SubscribeToKlineUpdatesAsync
+
+Subscribe to candlestick/kline updates for a symbol.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToKlineUpdatesAsync(
+    string exchange,
+    SubscribeKlineRequest request,
+    Action<DataEvent<SharedKline>> handler,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToKlineUpdatesAsync(
+    SubscribeKlineRequest request,
+    Action<DataEvent<SharedKline>> handler,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+### SubscribeToOrderBookUpdatesAsync
+
+Subscribe to order book snapshot updates for a symbol.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToOrderBookUpdatesAsync(
+    string exchange,
+    SubscribeOrderBookRequest request,
+    Action<DataEvent<SharedOrderBook>> handler,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToOrderBookUpdatesAsync(
+    SubscribeOrderBookRequest request,
+    Action<DataEvent<SharedOrderBook>> handler,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+---
+
+## User data subscriptions
+
+User data subscriptions require API credentials. Some exchanges also require a listen key, which you can obtain from the REST client using `StartListenKeyAsync`.
+
+<Note>
+Pass previously obtained listen keys via the `listenKeyResults` parameter. If not provided, the socket client will attempt to subscribe without a listen key, which may fail for exchanges that require one.
+</Note>
+
+### SubscribeToBalanceUpdatesAsync
+
+Subscribe to user balance updates.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToBalanceUpdatesAsync(
+    string exchange,
+    SubscribeBalancesRequest request,
+    Action<DataEvent<SharedBalance[]>> handler,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToBalanceUpdatesAsync(
+    SubscribeBalancesRequest request,
+    Action<DataEvent<SharedBalance[]>> handler,
+    IEnumerable<string>? exchanges = null,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+```
+
+<ParamField body="request" type="SubscribeBalancesRequest" required>Subscription request</ParamField>
+<ParamField body="handler" type="Action<DataEvent<SharedBalance[]>>" required>Callback invoked on each update</ParamField>
+<ParamField body="listenKeyResults" type="ExchangeWebResult<string>[]?">Listen keys obtained from `StartListenKeysAsync`</ParamField>
+<ParamField body="ct" type="CancellationToken">Cancellation token</ParamField>
+
+### SubscribeToSpotOrderUpdatesAsync
+
+Subscribe to user spot order updates.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToSpotOrderUpdatesAsync(
+    string exchange,
+    SubscribeSpotOrderRequest request,
+    Action<DataEvent<SharedSpotOrder[]>> handler,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToSpotOrderUpdatesAsync(
+    SubscribeSpotOrderRequest request,
+    Action<DataEvent<SharedSpotOrder[]>> handler,
+    IEnumerable<string>? exchanges = null,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+```
+
+### SubscribeToFuturesOrderUpdatesAsync
+
+Subscribe to user futures order updates.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToFuturesOrderUpdatesAsync(
+    string exchange,
+    SubscribeFuturesOrderRequest request,
+    Action<DataEvent<SharedFuturesOrder[]>> handler,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToFuturesOrderUpdatesAsync(
+    SubscribeFuturesOrderRequest request,
+    Action<DataEvent<SharedFuturesOrder[]>> handler,
+    IEnumerable<string>? exchanges = null,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+```
+
+### SubscribeToUserTradeUpdatesAsync
+
+Subscribe to user trade execution updates.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToUserTradeUpdatesAsync(
+    string exchange,
+    SubscribeUserTradeRequest request,
+    Action<DataEvent<SharedUserTrade[]>> handler,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToUserTradeUpdatesAsync(
+    SubscribeUserTradeRequest request,
+    Action<DataEvent<SharedUserTrade[]>> handler,
+    IEnumerable<string>? exchanges = null,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+```
+
+### SubscribeToPositionUpdatesAsync
+
+Subscribe to user futures position updates.
+
+```csharp
+Task<ExchangeResult<UpdateSubscription>> SubscribeToPositionUpdatesAsync(
+    string exchange,
+    SubscribePositionRequest request,
+    Action<DataEvent<SharedPosition[]>> handler,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+
+Task<ExchangeResult<UpdateSubscription>[]> SubscribeToPositionUpdatesAsync(
+    SubscribePositionRequest request,
+    Action<DataEvent<SharedPosition[]>> handler,
+    IEnumerable<string>? exchanges = null,
+    ExchangeWebResult<string>[]? listenKeyResults = null,
+    CancellationToken ct = default);
+```
+
+---
+
+## Managing subscriptions
+
+### UnsubscribeAllAsync
+
+Close all active subscriptions and WebSocket connections.
+
+```csharp
+Task UnsubscribeAllAsync();
+```
+
+```csharp
+await socketClient.UnsubscribeAllAsync();
+```
+
+---
+
+## Helper methods — getting shared interface clients
+
+These return the typed shared socket interface client for a specific exchange.
+
+### Ticker clients
+
+```csharp
+ITickerSocketClient? GetTickerClient(TradingMode tradingMode, string exchange);
+IEnumerable<ITickerSocketClient> GetTickerClients();
+IEnumerable<ITickerSocketClient> GetTickerClients(TradingMode tradingMode);
+
+ITickersSocketClient? GetTickersClient(TradingMode tradingMode, string exchange);
+IEnumerable<ITickersSocketClient> GetTickersClients();
+IEnumerable<ITickersSocketClient> GetTickersClients(TradingMode tradingMode);
+```
+
+### Trade clients
+
+```csharp
+ITradeSocketClient? GetTradeClient(TradingMode tradingMode, string exchange);
+IEnumerable<ITradeSocketClient> GetTradeClients();
+IEnumerable<ITradeSocketClient> GetTradeClients(TradingMode tradingMode);
+```
+
+### Kline clients
+
+```csharp
+IKlineSocketClient? GetKlineClient(TradingMode tradingMode, string exchange);
+IEnumerable<IKlineSocketClient> GetKlineClients();
+IEnumerable<IKlineSocketClient> GetKlineClients(TradingMode tradingMode);
+```
+
+### Order book clients
+
+```csharp
+IOrderBookSocketClient? GetOrderBookClient(TradingMode tradingMode, string exchange);
+IEnumerable<IOrderBookSocketClient> GetOrderBookClients();
+IEnumerable<IOrderBookSocketClient> GetOrderBookClients(TradingMode tradingMode);
+```
+
+### Book ticker clients
+
+```csharp
+IBookTickerSocketClient? GetBookTickerClient(TradingMode tradingMode, string exchange);
+IEnumerable<IBookTickerSocketClient> GetBookTickerClients();
+IEnumerable<IBookTickerSocketClient> GetBookTickerClients(TradingMode tradingMode);
+```
+
+### Balance clients
+
+```csharp
+IBalanceSocketClient? GetBalanceClient(TradingMode tradingMode, string exchange);
+IEnumerable<IBalanceSocketClient> GetBalanceClients();
+IEnumerable<IBalanceSocketClient> GetBalanceClients(TradingMode tradingMode);
+```
+
+### Order clients
+
+```csharp
+ISpotOrderSocketClient? GetSpotOrderClient(string exchange);
+IEnumerable<ISpotOrderSocketClient> GetSpotOrderClients();
+
+IFuturesOrderSocketClient? GetFuturesOrderClient(TradingMode tradingMode, string exchange);
+IEnumerable<IFuturesOrderSocketClient> GetFuturesOrderClients();
+IEnumerable<IFuturesOrderSocketClient> GetFuturesOrderClients(TradingMode tradingMode);
+```
+
+### User trade and position clients
+
+```csharp
+IUserTradeSocketClient? GetUserTradeClient(TradingMode tradingMode, string exchange);
+IEnumerable<IUserTradeSocketClient> GetUserTradeClients();
+IEnumerable<IUserTradeSocketClient> GetUserTradeClients(TradingMode tradingMode);
+
+IPositionSocketClient? GetPositionClient(TradingMode tradingMode, string exchange);
+IEnumerable<IPositionSocketClient> GetPositionClients();
+IEnumerable<IPositionSocketClient> GetPositionClients(TradingMode tradingMode);
+```

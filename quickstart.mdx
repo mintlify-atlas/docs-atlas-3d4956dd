@@ -1,80 +1,254 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get up and running with CryptoClients.Net in minutes"
 ---
 
-## Get started in three steps
+This guide walks you through installing CryptoClients.Net, making your first REST request, and subscribing to a live WebSocket stream.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- .NET 8.0 or later (or .NET Standard 2.0+ for older targets)
+- A .NET project (console, web API, or otherwise)
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
+  <Step title="Install the package">
+    Add CryptoClients.Net to your project via the .NET CLI:
 
-### Step 2: Deploy your changes
+    ```bash
+    dotnet add package CryptoClients.Net
+    ```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    Or using the Package Manager Console in Visual Studio:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```powershell
+    Install-Package CryptoClients.Net
+    ```
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Create a client">
+    There are two main entry points — `ExchangeRestClient` for REST APIs and `ExchangeSocketClient` for WebSocket streams. You can construct them directly or register them via dependency injection.
 
-### Step 3: Go live
+    <CodeGroup>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```csharp Direct construction
+    using CryptoClients.Net;
+
+    IExchangeRestClient restClient = new ExchangeRestClient();
+    IExchangeSocketClient socketClient = new ExchangeSocketClient();
+    ```
+
+    ```csharp Dependency injection
+    // In Program.cs or Startup.cs
+    builder.Services.AddCryptoClients();
+
+    // Then inject where needed
+    public class TradingBot
+    {
+        public TradingBot(IExchangeRestClient restClient, IExchangeSocketClient socketClient)
+        {
+        }
+    }
+    ```
+
+    </CodeGroup>
+
+    <Tip>
+      Use dependency injection in ASP.NET Core applications so the framework manages client lifetimes. Use direct construction in console apps or scripts.
+    </Tip>
+  </Step>
+
+  <Step title="Make your first REST request">
+    Request a spot ticker from a single exchange using the unified shared interface:
+
+    ```csharp
+    using CryptoClients.Net;
+    using CryptoExchange.Net.SharedApis;
+
+    var client = new ExchangeRestClient();
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+    var result = await client.GetSpotTickerAsync(Exchange.Binance, new GetTickerRequest(symbol));
+
+    if (result.Success)
+        Console.WriteLine($"Binance ETH/USDT: {result.Data.LastPrice}");
+    else
+        Console.WriteLine($"Error: {result.Error}");
+    ```
+
+    The `SharedSymbol` type lets you specify a trading pair in a normalized format that works across all exchanges — no need to know each exchange's symbol convention.
+  </Step>
+
+  <Step title="Request data from multiple exchanges at once">
+    One of the key features of CryptoClients.Net is the ability to query multiple exchanges with a single call. All requests run in parallel and results are returned together:
+
+    ```csharp
+    using CryptoClients.Net;
+    using CryptoExchange.Net.SharedApis;
+
+    var client = new ExchangeRestClient();
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+    var results = await client.GetSpotTickerAsync(
+        new GetTickerRequest(symbol),
+        ["Binance", "Bybit", "HyperLiquid", "OKX"]);
+
+    foreach (var result in results)
+    {
+        if (!result.Success)
+            Console.WriteLine($"{result.Exchange} error: {result.Error}");
+        else
+            Console.WriteLine($"{result.Exchange} price: {result.Data.LastPrice}");
+    }
+    ```
+
+    You can also use `GetSpotTickerAsyncEnumerable` to process results as they arrive instead of waiting for all exchanges to respond:
+
+    ```csharp
+    await foreach (var result in client.GetSpotTickerAsyncEnumerable(new GetTickerRequest(symbol)))
+        Console.WriteLine($"{result.Exchange}: {result.Data?.LastPrice}");
+    ```
+
+    <Note>
+      To query all supported exchanges, omit the exchange list entirely — the client will send requests to every exchange that supports the requested endpoint.
+    </Note>
+  </Step>
+
+  <Step title="Subscribe to WebSocket streams">
+    Use `ExchangeSocketClient` to subscribe to live data. Subscriptions are automatically managed — connections are kept alive and reconnected if they drop.
+
+    ```csharp
+    using CryptoClients.Net;
+    using CryptoExchange.Net.SharedApis;
+
+    var socketClient = new ExchangeSocketClient();
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+    var subscriptions = await socketClient.SubscribeToTickerUpdatesAsync(
+        new SubscribeTickerRequest(symbol),
+        data => Console.WriteLine($"{data.Exchange} {data.Data.Symbol}: {data.Data.LastPrice}"),
+        [Exchange.Binance, Exchange.OKX]);
+
+    foreach (var sub in subscriptions)
+    {
+        if (!sub.Success)
+            Console.WriteLine($"{sub.Exchange} subscription failed: {sub.Error}");
+    }
+
+    Console.ReadLine(); // Keep the process alive to receive updates
+    ```
+
+    This subscribes to ticker updates on Binance and OKX simultaneously. The same callback receives updates from both exchanges, each tagged with the exchange name in `data.Exchange`.
+  </Step>
+</Steps>
+
+## Using dependency injection in ASP.NET Core
+
+The `AddCryptoClients` extension method registers all clients with the DI container. You can configure options inline or load them from `appsettings.json`:
+
+<CodeGroup>
+
+```csharp Configure in code
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddCryptoClients(options =>
+{
+    options.OutputOriginalData = true;
+});
+
+var app = builder.Build();
+app.Run();
+```
+
+```csharp Load from configuration
+var builder = WebApplication.CreateBuilder(args);
+
+// Reads from "CryptoClients" section in appsettings.json
+builder.Services.AddCryptoClients(
+    builder.Configuration.GetSection("CryptoClients"));
+
+var app = builder.Build();
+app.Run();
+```
+
+```json appsettings.json
+{
+  "CryptoClients": {
+    "RateLimiterEnabled": true,
+    "Binance": {
+      "ApiCredentials": {
+        "HMAC": {
+          "Key": "your-api-key",
+          "Secret": "your-api-secret"
+        }
+      }
+    },
+    "OKX": {
+      "ApiCredentials": {
+        "Key": "your-api-key",
+        "Secret": "your-api-secret",
+        "Passphrase": "your-passphrase"
+      }
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+Once registered, inject `IExchangeRestClient` or `IExchangeSocketClient` into any service:
+
+```csharp
+app.MapGet("ticker/{exchange}/{base}/{quote}",
+    async (IExchangeRestClient client, string exchange, string @base, string quote) =>
+    {
+        var spotClient = client.GetSpotTickerClient(exchange);
+        if (spotClient == null)
+            return Results.Problem("Exchange not found");
+
+        var result = await spotClient.GetSpotTickerAsync(
+            new GetTickerRequest(new SharedSymbol(TradingMode.Spot, @base, quote)));
+
+        return result.Success
+            ? Results.Ok(result.Data.LastPrice)
+            : Results.Problem(result.Error!.ToString());
+    });
+```
+
+## Exchange-specific clients
+
+When you need access to exchange-specific endpoints that aren't part of the shared interface, use the typed clients exposed directly on `ExchangeRestClient`:
+
+```csharp
+var client = new ExchangeRestClient();
+
+// Exchange-specific APIs are accessible as typed properties
+var binanceTicker = await client.Binance.SpotApi.ExchangeData.GetTickerAsync("ETHUSDT");
+var kucoinTicker = await client.Kucoin.SpotApi.ExchangeData.GetTickerAsync("ETH-USDT");
+```
+
+You can also construct exchange clients directly if you only need one exchange:
+
+```csharp
+using Binance.Net.Clients;
+using Kucoin.Net.Clients;
+
+var binanceClient = new BinanceRestClient();
+var kucoinSocketClient = new KucoinSocketClient();
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation" icon="cube" href="/installation">
+    See all installation options including GitHub Packages and framework compatibility
+  </Card>
+  <Card title="REST client" icon="arrow-right-arrow-left" href="/concepts/rest-client">
+    Learn how the ExchangeRestClient works in depth
+  </Card>
+  <Card title="Shared interfaces" icon="plug" href="/concepts/shared-interfaces">
+    Write exchange-agnostic logic using common interfaces
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/options">
+    Configure credentials, rate limiting, environments, and more
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

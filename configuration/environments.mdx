@@ -1,0 +1,134 @@
+---
+title: "API environments"
+description: "Configure exchange environments like testnet or regional endpoints"
+---
+
+Most exchanges offer multiple API environments — a live production environment, a testnet for paper trading, or regional endpoints. CryptoClients.Net lets you select the environment per exchange either in code or through configuration.
+
+## How environments work
+
+Each exchange library ships with a static class (e.g. `BinanceEnvironment`, `BybitEnvironment`) that exposes pre-defined environment objects. These objects contain the base URLs for that environment's REST and WebSocket endpoints.
+
+When you configure CryptoClients.Net, each exchange defaults to its `Live` environment. You can override this globally via `GlobalExchangeOptions.ApiEnvironments`, or per exchange via the exchange-specific options delegate.
+
+## Setting an environment per exchange
+
+Use the exchange-specific options parameter on `AddCryptoClients` to set an environment for a single exchange:
+
+```csharp
+builder.Services.AddCryptoClients(
+    globalOptions => { },
+    bybitOptions: options =>
+    {
+        options.Environment = BybitEnvironment.Eu;
+    },
+    binanceOptions: options =>
+    {
+        options.Environment = BinanceEnvironment.Testnet;
+    }
+);
+```
+
+## Setting environments via ApiEnvironments
+
+`GlobalExchangeOptions.ApiEnvironments` is a `Dictionary<string, string?>` that maps exchange names to environment name strings. This is the recommended approach when loading configuration from `appsettings.json`, because environment names are plain strings that bind from JSON.
+
+```csharp
+builder.Services.AddCryptoClients(options =>
+{
+    options.ApiEnvironments = new Dictionary<string, string?>
+    {
+        { "Binance", "testnet" },
+        { "Bybit",   "eu" }
+    };
+});
+```
+
+The string value is resolved by calling the exchange's own `GetEnvironmentByName` method (e.g. `BinanceEnvironment.GetEnvironmentByName("testnet")`). Environment name strings are defined by each exchange library — check the exchange-specific documentation or source for valid values.
+
+## Setting environments from appsettings.json
+
+Use the `ApiEnvironments` section inside the `CryptoClients` config block:
+
+```json
+{
+  "CryptoClients": {
+    "ApiEnvironments": {
+      "Binance": "testnet",
+      "Bybit": "eu"
+    }
+  }
+}
+```
+
+Load it with:
+
+```csharp
+builder.Services.AddCryptoClients(
+    builder.Configuration.GetSection("CryptoClients"));
+```
+
+## Discovering available environments
+
+Use `Exchanges.All` to get metadata for every supported exchange, including the list of available environments:
+
+```csharp
+foreach (var exchange in Exchanges.All)
+{
+    Console.WriteLine(exchange.Name);
+    foreach (var env in exchange.ApiEnvironments)
+        Console.WriteLine($"  - {env.Name}");
+}
+```
+
+Each entry in `ApiEnvironments` is a `TradeEnvironment` with a `Name` property that matches the string you pass to `GetEnvironmentByName` or `ApiEnvironments` in configuration.
+
+## Common environment names
+
+The following environment names are available for the most commonly used exchanges:
+
+| Exchange | Environment name | Description |
+|---|---|---|
+| Binance | `live` | Production API |
+| Binance | `testnet` | Paper trading / testnet |
+| Bybit | `live` | Production API |
+| Bybit | `eu` | European regional endpoint |
+| Bybit | `testnet` | Testnet |
+| BitMEX | `live` | Production API |
+| BitMEX | `testnet` | Testnet |
+| Kraken | `live` | Production API |
+| OKX | `live` | Production API |
+| OKX | `aws` | AWS endpoint |
+
+<Note>
+  Not every exchange provides a testnet. Check the exchange-specific library
+  documentation to confirm which environments are available before configuring
+  one.
+</Note>
+
+## Example: switching between live and testnet
+
+A common pattern is to read the environment from application configuration so you can switch between live and testnet without code changes:
+
+```json
+{
+  "CryptoClients": {
+    "ApiEnvironments": {
+      "Binance": "testnet",
+      "Bybit": "testnet"
+    },
+    "Binance": {
+      "ApiCredentials": {
+        "HMAC": { "Key": "testnet-key", "Secret": "testnet-secret" }
+      }
+    }
+  }
+}
+```
+
+```csharp
+builder.Services.AddCryptoClients(
+    builder.Configuration.GetSection("CryptoClients"));
+```
+
+Change `"testnet"` to `"live"` (and update your credentials) to point at the production API.

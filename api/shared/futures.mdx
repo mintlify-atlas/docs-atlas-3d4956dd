@@ -1,0 +1,571 @@
+---
+title: "Futures shared interfaces"
+description: "Exchange-agnostic interfaces for futures and derivatives trading"
+---
+
+The shared futures interfaces expose a consistent, exchange-agnostic API surface for perpetual and delivery futures trading. Each interface is implemented by one or more exchange clients and can be retrieved from `IExchangeRestClient` filtered by trading mode.
+
+## TradingMode
+
+The `TradingMode` enum categorises the type of derivatives contract:
+
+| Value | Description |
+|---|---|
+| `Spot` | Spot market (not futures) |
+| `PerpetualLinear` | Linear perpetual (USDT/USDC-margined) |
+| `PerpetualInverse` | Inverse perpetual (coin-margined) |
+| `DeliveryLinear` | Linear delivery / quarterly futures |
+| `DeliveryInverse` | Inverse delivery / quarterly futures |
+
+## SharedSymbol
+
+Specify the trading mode when building a `SharedSymbol` for futures:
+
+```csharp
+// Linear perpetual
+var linearPerp = new SharedSymbol(TradingMode.PerpetualLinear, "ETH", "USDT");
+
+// Inverse perpetual
+var inversePerp = new SharedSymbol(TradingMode.PerpetualInverse, "BTC", "USD");
+```
+
+## Retrieving interface clients
+
+```csharp
+// Single exchange, filtered by trading mode
+IFuturesTickerRestClient? client = restClient.GetFuturesTickerClient(TradingMode.PerpetualLinear, "Binance");
+
+// All exchanges supporting linear perpetuals
+IEnumerable<IFuturesTickerRestClient> clients = restClient.GetFuturesTickerClients(TradingMode.PerpetualLinear);
+
+// All exchanges, all modes
+IEnumerable<IFuturesTickerRestClient> allClients = restClient.GetFuturesTickerClients();
+```
+
+<Note>
+Pass a `TradingMode` filter when calling `GetXxxClients(TradingMode)` to avoid calling exchanges or market types that don't apply to your use case.
+</Note>
+
+---
+
+<AccordionGroup>
+
+<Accordion title="IFuturesTickerRestClient">
+
+Retrieve 24-hour price ticker data for futures symbols, including mark price, index price, and funding rate where available.
+
+**Client access**
+
+```csharp
+IFuturesTickerRestClient? client = restClient.GetFuturesTickerClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IFuturesTickerRestClient> clients = restClient.GetFuturesTickerClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// Single symbol on a specific exchange
+Task<ExchangeWebResult<SharedFuturesTicker>> GetFuturesTickerAsync(
+    string exchange,
+    GetTickerRequest request,
+    CancellationToken ct = default);
+
+// Single symbol across all (or filtered) exchanges — wait for all
+Task<ExchangeWebResult<SharedFuturesTicker>[]> GetFuturesTickerAsync(
+    GetTickerRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// Single symbol — stream results as they arrive
+IAsyncEnumerable<ExchangeWebResult<SharedFuturesTicker>> GetFuturesTickerAsyncEnumerable(
+    GetTickerRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// All symbols on a specific exchange
+Task<ExchangeWebResult<SharedFuturesTicker[]>> GetFuturesTickersAsync(
+    string exchange,
+    GetTickersRequest request,
+    CancellationToken ct = default);
+
+// All symbols across all (or filtered) exchanges — wait for all
+Task<ExchangeWebResult<SharedFuturesTicker[]>[]> GetFuturesTickersAsync(
+    GetTickersRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// All symbols — stream results as they arrive
+IAsyncEnumerable<ExchangeWebResult<SharedFuturesTicker[]>> GetFuturesTickersAsyncEnumerable(
+    GetTickersRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var symbol = new SharedSymbol(TradingMode.PerpetualLinear, "BTC", "USDT");
+
+// Fetch from Binance
+var ticker = await restClient.GetFuturesTickerAsync("Binance",
+    new GetTickerRequest(symbol));
+
+// Fetch from all exchanges simultaneously, streaming results
+await foreach (var result in restClient.GetFuturesTickerAsyncEnumerable(
+    new GetTickerRequest(symbol)))
+{
+    Console.WriteLine($"{result.Exchange}: {result.Data?.LastPrice}");
+}
+```
+
+</Accordion>
+
+<Accordion title="IFuturesSymbolRestClient">
+
+List all available futures trading pairs on an exchange, optionally filtered by trading mode.
+
+**Client access**
+
+```csharp
+IFuturesSymbolRestClient? client = restClient.GetFuturesSymbolClient(TradingMode.PerpetualLinear, "Bybit");
+IEnumerable<IFuturesSymbolRestClient> clients = restClient.GetFuturesSymbolClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedFuturesSymbol[]>> GetFuturesSymbolsAsync(
+    string exchange,
+    GetSymbolsRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedFuturesSymbol[]>[]> GetFuturesSymbolsAsync(
+    GetSymbolsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedFuturesSymbol[]>> GetFuturesSymbolsAsyncEnumerable(
+    GetSymbolsRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+// Helpers
+Task<Dictionary<string, SharedSymbol[]>> GetFuturesSymbolsForBaseAssetAsync(string baseAsset);
+Task<ExchangeResult<SharedSymbol[]>> GetFuturesSymbolsForBaseAssetAsync(string exchange, string baseAsset);
+Task<string[]> GetExchangesSupportingFuturesSymbolAsync(string symbolName);
+Task<string[]> GetExchangesSupportingFuturesSymbolAsync(SharedSymbol symbol);
+Task<ExchangeResult<bool>> SupportsFuturesSymbolAsync(string exchange, SharedSymbol symbol);
+```
+
+</Accordion>
+
+<Accordion title="IFuturesOrderRestClient">
+
+Place, retrieve, and cancel futures orders; query open positions, order history, and trade history.
+
+**Client access**
+
+```csharp
+IFuturesOrderRestClient? client = restClient.GetFuturesOrderClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IFuturesOrderRestClient> clients = restClient.GetFuturesOrderClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+// Place a futures order
+Task<ExchangeWebResult<SharedId>> PlaceFuturesOrderAsync(
+    string exchange,
+    PlaceFuturesOrderRequest request,
+    CancellationToken ct = default);
+
+// Retrieve a specific order
+Task<ExchangeWebResult<SharedFuturesOrder>> GetFuturesOrderAsync(
+    string exchange,
+    GetOrderRequest request,
+    CancellationToken ct = default);
+
+// Retrieve fills for a specific order
+Task<ExchangeWebResult<SharedUserTrade[]>> GetFuturesOrderTradesAsync(
+    string exchange,
+    GetOrderTradesRequest request,
+    CancellationToken ct = default);
+
+// Cancel an open order
+Task<ExchangeWebResult<SharedId>> CancelFuturesOrderAsync(
+    string exchange,
+    CancelOrderRequest request,
+    CancellationToken ct = default);
+
+// Close an open position at market
+Task<ExchangeWebResult<SharedId>> ClosePositionAsync(
+    string exchange,
+    ClosePositionRequest request,
+    CancellationToken ct = default);
+
+// Get open orders (optionally scoped to a symbol)
+Task<ExchangeWebResult<SharedFuturesOrder[]>> GetFuturesOpenOrdersAsync(
+    string exchange,
+    GetOpenOrdersRequest request,
+    CancellationToken ct = default);
+
+// Get closed/historical orders
+Task<ExchangeWebResult<SharedFuturesOrder[]>> GetFuturesClosedOrdersAsync(
+    string exchange,
+    GetClosedOrdersRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+// Get user trade history
+Task<ExchangeWebResult<SharedUserTrade[]>> GetFuturesUserTradesAsync(
+    string exchange,
+    GetUserTradesRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+// Get open positions
+Task<ExchangeWebResult<SharedPosition[]>> GetPositionsAsync(
+    string exchange,
+    GetPositionsRequest request,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var symbol = new SharedSymbol(TradingMode.PerpetualLinear, "ETH", "USDT");
+
+// Open a long position with 10x leverage
+var order = await restClient.PlaceFuturesOrderAsync("Bybit", new PlaceFuturesOrderRequest(
+    symbol,
+    SharedOrderSide.Buy,
+    SharedOrderType.Market,
+    quantity: 1m));
+
+// Close the position
+await restClient.ClosePositionAsync("Bybit", new ClosePositionRequest(symbol, SharedPositionSide.Long));
+```
+
+</Accordion>
+
+<Accordion title="IFuturesOrderClientIdRestClient">
+
+Retrieve or cancel futures orders using a client-assigned order ID.
+
+**Client access**
+
+```csharp
+IFuturesOrderClientIdRestClient? client = restClient.GetFuturesOrderClientIdClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IFuturesOrderClientIdRestClient> clients = restClient.GetFuturesOrderClientIdClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedFuturesOrder>> GetFuturesOrderByClientOrderIdAsync(
+    string exchange,
+    GetOrderRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedId>> CancelFuturesOrderByClientOrderIdAsync(
+    string exchange,
+    CancelOrderRequest request,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IFuturesTriggerOrderRestClient">
+
+Place and cancel futures trigger orders (stop-market, stop-limit) that activate when the market reaches a specified price.
+
+**Client access**
+
+```csharp
+IFuturesTriggerOrderRestClient? client = restClient.GetFuturesTriggerOrderClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IFuturesTriggerOrderRestClient> clients = restClient.GetFuturesTriggerOrderClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedId>> PlaceFuturesTriggerOrderAsync(
+    string exchange,
+    PlaceFuturesTriggerOrderRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedId>> CancelFuturesTriggerOrderAsync(
+    string exchange,
+    CancelOrderRequest request,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IFuturesTpSlRestClient">
+
+Set or cancel take-profit and stop-loss prices on open positions.
+
+**Client access**
+
+```csharp
+IFuturesTpSlRestClient? client = restClient.GetFuturesTpSlClient(TradingMode.PerpetualLinear, "Bybit");
+IEnumerable<IFuturesTpSlRestClient> clients = restClient.GetFuturesTpSlClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedId>> SetFuturesTpSlAsync(
+    string exchange,
+    SetTpSlRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<bool>> CancelFuturesTpSlAsync(
+    string exchange,
+    CancelTpSlRequest request,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IFundingRateRestClient">
+
+Retrieve current and historical funding rate data for perpetual futures symbols.
+
+**Client access**
+
+```csharp
+IFundingRateRestClient? client = restClient.GetFundingRateClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IFundingRateRestClient> clients = restClient.GetFundingRateClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedFundingRate[]>> GetFundingRateHistoryAsync(
+    string exchange,
+    GetFundingRateHistoryRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedFundingRate[]>[]> GetFundingRateHistoryAsync(
+    GetFundingRateHistoryRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedFundingRate[]>> GetFundingRateHistoryAsyncEnumerable(
+    GetFundingRateHistoryRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+var rates = await restClient.GetFundingRateHistoryAsync("Binance",
+    new GetFundingRateHistoryRequest(
+        new SharedSymbol(TradingMode.PerpetualLinear, "BTC", "USDT"),
+        startTime: DateTime.UtcNow.AddDays(-30)));
+
+foreach (var rate in rates.Data ?? [])
+    Console.WriteLine($"{rate.Timestamp:u}  {rate.FundingRate:P4}");
+```
+
+</Accordion>
+
+<Accordion title="IMarkPriceKlineRestClient">
+
+Retrieve OHLCV candlestick data based on the mark price of a futures symbol.
+
+**Client access**
+
+```csharp
+IMarkPriceKlineRestClient? client = restClient.GetMarkPriceKlineClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IMarkPriceKlineRestClient> clients = restClient.GetMarkPriceKlineClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedFuturesKline[]>> GetMarkPriceKlinesAsync(
+    string exchange,
+    GetKlinesRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedFuturesKline[]>[]> GetMarkPriceKlinesAsync(
+    GetKlinesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedFuturesKline[]>> GetMarkPriceKlinesAsyncEnumerable(
+    GetKlinesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IIndexPriceKlineRestClient">
+
+Retrieve OHLCV candlestick data based on the index price of a futures symbol.
+
+**Client access**
+
+```csharp
+IIndexPriceKlineRestClient? client = restClient.GetIndexPriceKlineClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IIndexPriceKlineRestClient> clients = restClient.GetIndexPriceKlineClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedFuturesKline[]>> GetIndexPriceKlinesAsync(
+    string exchange,
+    GetKlinesRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedFuturesKline[]>[]> GetIndexPriceKlinesAsync(
+    GetKlinesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedFuturesKline[]>> GetIndexPriceKlinesAsyncEnumerable(
+    GetKlinesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IOpenInterestRestClient">
+
+Retrieve the current open interest for a futures symbol.
+
+**Client access**
+
+```csharp
+IOpenInterestRestClient? client = restClient.GetOpenInterestClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IOpenInterestRestClient> clients = restClient.GetOpenInterestClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedOpenInterest>> GetOpenInterestAsync(
+    string exchange,
+    GetOpenInterestRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedOpenInterest>[]> GetOpenInterestAsync(
+    GetOpenInterestRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedOpenInterest>> GetOpenInterestAsyncEnumerable(
+    GetOpenInterestRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IPositionModeRestClient">
+
+Get or set the position mode (one-way vs. hedge) for a futures account.
+
+**Client access**
+
+```csharp
+IPositionModeRestClient? client = restClient.GetPositionModeClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<IPositionModeRestClient> clients = restClient.GetPositionModeClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedPositionModeResult>> GetPositionModeAsync(
+    string exchange,
+    GetPositionModeRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedPositionModeResult>> SetPositionModeAsync(
+    string exchange,
+    SetPositionModeRequest request,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="IPositionHistoryRestClient">
+
+Retrieve historical closed position data.
+
+**Client access**
+
+```csharp
+IPositionHistoryRestClient? client = restClient.GetPositionHistoryClient(TradingMode.PerpetualLinear, "Bybit");
+IEnumerable<IPositionHistoryRestClient> clients = restClient.GetPositionHistoryClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedPositionHistory[]>> GetPositionHistoryAsync(
+    string exchange,
+    GetPositionHistoryRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedPositionHistory[]>[]> GetPositionHistoryAsync(
+    GetPositionHistoryRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+
+IAsyncEnumerable<ExchangeWebResult<SharedPositionHistory[]>> GetPositionHistoryAsyncEnumerable(
+    GetPositionHistoryRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+</Accordion>
+
+<Accordion title="ILeverageRestClient">
+
+Get or set the leverage multiplier for a specific futures symbol.
+
+**Client access**
+
+```csharp
+ILeverageRestClient? client = restClient.GetLeverageClient(TradingMode.PerpetualLinear, "Binance");
+IEnumerable<ILeverageRestClient> clients = restClient.GetLeverageClients(TradingMode.PerpetualLinear);
+```
+
+**Methods on `IExchangeRestClient`**
+
+```csharp
+Task<ExchangeWebResult<SharedLeverage>> GetLeverageAsync(
+    string exchange,
+    GetLeverageRequest request,
+    CancellationToken ct = default);
+
+Task<ExchangeWebResult<SharedLeverage>> SetLeverageAsync(
+    string exchange,
+    SetLeverageRequest request,
+    CancellationToken ct = default);
+```
+
+**Example**
+
+```csharp
+// Set 10x leverage for BTC-USDT perp on Bybit
+await restClient.SetLeverageAsync("Bybit", new SetLeverageRequest(
+    new SharedSymbol(TradingMode.PerpetualLinear, "BTC", "USDT"),
+    leverage: 10));
+```
+
+</Accordion>
+
+</AccordionGroup>

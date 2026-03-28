@@ -1,0 +1,182 @@
+---
+title: "Shared interfaces"
+description: "Write exchange-agnostic code using common interfaces"
+---
+
+`CryptoExchange.Net` defines a set of **SharedApis** interfaces that describe common functionality available across multiple exchanges. Every exchange client in CryptoClients.Net implements the interfaces it supports, accessible via the `SharedClient` property on each API group.
+
+Writing against these interfaces means your business logic does not need to know which exchange it is talking to — the same code works on Binance, Bybit, Kraken, or any other supported exchange.
+
+## Accessing shared clients
+
+`IExchangeRestClient` and `IExchangeSocketClient` expose helper methods to retrieve shared-interface implementations by interface type, trading mode, or exchange name.
+
+```csharp
+var client = new ExchangeRestClient();
+
+// Get the ISpotTickerRestClient for Binance
+ISpotTickerRestClient? binanceTicker = client.GetSpotTickerClient("Binance");
+
+// Get ISpotTickerRestClient implementations for every exchange that supports it
+IEnumerable<ISpotTickerRestClient> allTicker = client.GetSpotTickerClients();
+
+// Access a shared client directly from an exchange property
+ISpotTickerRestClient krakenTicker = client.Kraken.SpotApi.SharedClient;
+```
+
+## Writing exchange-agnostic code
+
+The pattern below works identically for any exchange that supports `ISpotTickerRestClient`:
+
+```csharp
+async Task<ExchangeWebResult<SharedSpotTicker>> GetTickerAsync(
+    ISpotTickerRestClient tickerClient,
+    SharedSymbol symbol)
+{
+    return await tickerClient.GetSpotTickerAsync(new GetTickerRequest(symbol));
+}
+
+var client = new ExchangeRestClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+var binanceResult = await GetTickerAsync(client.Binance.SpotApi.SharedClient, symbol);
+var kucoinResult  = await GetTickerAsync(client.Kucoin.SpotApi.SharedClient, symbol);
+var okxResult     = await GetTickerAsync(client.OKX.UnifiedApi.SharedClient, symbol);
+```
+
+Using `GetSpotTickerClient(exchange)` to make this fully dynamic:
+
+```csharp
+var client = new ExchangeRestClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+// The exchange name can come from config, a database, or user input
+var tickerClient = client.GetSpotTickerClient("Kraken")!;
+var result = await tickerClient.GetSpotTickerAsync(new GetTickerRequest(symbol));
+Console.WriteLine($"Kraken ETH/USDT: {result.Data.LastPrice}");
+```
+
+This is the pattern used in the [example minimal API](/quickstart) from the README.
+
+## REST shared interfaces
+
+<AccordionGroup>
+  <Accordion title="Spot market data">
+    | Interface | Description |
+    |---|---|
+    | `ISpotTickerRestClient` | Retrieve spot ticker data for one or all symbols |
+    | `ISpotSymbolRestClient` | List available spot trading pairs |
+    | `IKlineRestClient` | Fetch OHLCV candlestick data |
+    | `IOrderBookRestClient` | Query the order book snapshot |
+    | `IRecentTradeRestClient` | Retrieve recent public trades |
+    | `ITradeHistoryRestClient` | Fetch historical public trades (paginated) |
+    | `IBookTickerRestClient` | Get best bid/ask price |
+    | `IAssetsRestClient` | List supported assets and networks |
+  </Accordion>
+  <Accordion title="Spot trading">
+    | Interface | Description |
+    |---|---|
+    | `ISpotOrderRestClient` | Place, cancel, and query spot orders |
+    | `ISpotOrderClientIdRestClient` | Look up spot orders by client order ID |
+    | `ISpotTriggerOrderRestClient` | Place and manage spot trigger (stop) orders |
+    | `IBalanceRestClient` | Retrieve account balances |
+    | `IDepositRestClient` | Query deposit history |
+    | `IWithdrawRestClient` | Submit withdrawals |
+    | `IWithdrawalRestClient` | Query withdrawal history |
+    | `ITransferRestClient` | Move funds between account types |
+    | `IFeeRestClient` | Retrieve maker/taker fee rates |
+  </Accordion>
+  <Accordion title="Futures market data">
+    | Interface | Description |
+    |---|---|
+    | `IFuturesTickerRestClient` | Futures ticker (includes mark/index price, funding) |
+    | `IFuturesSymbolRestClient` | List available futures contracts |
+    | `IFundingRateRestClient` | Historical and predicted funding rates |
+    | `IMarkPriceKlineRestClient` | Mark price klines for futures |
+    | `IIndexPriceKlineRestClient` | Index price klines for futures |
+    | `IOpenInterestRestClient` | Open interest data |
+  </Accordion>
+  <Accordion title="Futures trading">
+    | Interface | Description |
+    |---|---|
+    | `IFuturesOrderRestClient` | Place, cancel, and query futures orders |
+    | `IFuturesOrderClientIdRestClient` | Look up futures orders by client order ID |
+    | `IFuturesTriggerOrderRestClient` | Place and manage futures trigger orders |
+    | `IFuturesTpSlRestClient` | Take-profit / stop-loss management |
+    | `ILeverageRestClient` | Get and set position leverage |
+    | `IPositionModeRestClient` | Hedge vs one-way position mode |
+    | `IPositionHistoryRestClient` | Historical positions |
+    | `IListenKeyRestClient` | Create and renew listen keys for user data streams |
+  </Accordion>
+</AccordionGroup>
+
+## Socket shared interfaces
+
+<AccordionGroup>
+  <Accordion title="Market data streams">
+    | Interface | Description |
+    |---|---|
+    | `ITickerSocketClient` | Real-time ticker updates for a single symbol |
+    | `ITickersSocketClient` | Real-time ticker updates for all symbols |
+    | `ITradeSocketClient` | Live public trade feed |
+    | `IKlineSocketClient` | Candlestick / OHLCV updates |
+    | `IOrderBookSocketClient` | Order book snapshot updates |
+    | `IBookTickerSocketClient` | Best bid/ask streaming |
+  </Accordion>
+  <Accordion title="User data streams">
+    | Interface | Description |
+    |---|---|
+    | `IBalanceSocketClient` | Account balance change notifications |
+    | `ISpotOrderSocketClient` | Spot order state updates |
+    | `IFuturesOrderSocketClient` | Futures order state updates |
+    | `IUserTradeSocketClient` | Trade execution notifications |
+    | `IPositionSocketClient` | Futures position updates |
+  </Accordion>
+</AccordionGroup>
+
+## Getting shared clients by type
+
+`IExchangeRestClient` provides a `GetXxxClients()` / `GetXxxClient(exchange)` pair for every interface, with optional `TradingMode` filtering where relevant:
+
+```csharp
+var client = new ExchangeRestClient();
+
+// All exchanges that can return klines in spot mode
+IEnumerable<IKlineRestClient> klineClients =
+    client.GetKlineClients(TradingMode.Spot);
+
+// Futures order client for a specific exchange
+IFuturesOrderRestClient? futuresOrders =
+    client.GetFuturesOrderClient(TradingMode.PerpetualLinear, "Bybit");
+
+// All balance clients regardless of trading mode
+IEnumerable<IBalanceRestClient> balanceClients =
+    client.GetBalancesClients();
+
+// Balance client filtered by account type
+IEnumerable<IBalanceRestClient> spotBalanceClients =
+    client.GetBalancesClients(SharedAccountType.Spot);
+```
+
+<Tip>
+  Use `GetExchangeSharedClients(exchange, tradingMode)` to enumerate all shared interfaces that an exchange exposes, which is useful for feature detection at runtime.
+</Tip>
+
+## Symbol discovery helpers
+
+```csharp
+var client = new ExchangeRestClient();
+
+// Which exchanges list ETH/USDT as a spot symbol?
+string[] exchanges = await client.GetExchangesSupportingSpotSymbolAsync("ETHUSDT");
+
+// Get all spot symbols containing BTC across all exchanges
+Dictionary<string, SharedSymbol[]> byExchange =
+    await client.GetSpotSymbolsForBaseAssetAsync("BTC");
+
+// Does Binance support this spot symbol?
+ExchangeResult<bool> supported =
+    await client.SupportsSpotSymbolAsync(
+        "Binance",
+        new SharedSymbol(TradingMode.Spot, "ETH", "USDT"));
+```

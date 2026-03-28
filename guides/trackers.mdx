@@ -1,0 +1,237 @@
+---
+title: "Data trackers"
+description: "Track live kline and trade data using ExchangeTrackerFactory"
+---
+
+`ExchangeTrackerFactory` creates stateful tracker instances that maintain a rolling window of live market or user data. Trackers open WebSocket subscriptions internally and keep their data collections up to date, so you can query the current state at any time without managing subscriptions yourself.
+
+Three tracker categories are available:
+
+- **Kline trackers** — maintain a rolling set of OHLCV candles for a symbol and interval
+- **Trade trackers** — maintain a rolling list of recent public trades for a symbol
+- **User data trackers** — maintain live balances, orders, and positions for an authenticated user
+
+## Register the factory
+
+<CodeGroup>
+  ```csharp Dependency injection
+  // Program.cs / Startup.cs
+  builder.Services.AddCryptoClients();
+  // IExchangeTrackerFactory is registered automatically
+  ```
+
+  ```csharp Direct construction
+  using CryptoClients.Net;
+
+  IExchangeTrackerFactory factory = new ExchangeTrackerFactory(
+      aster:   new Aster.Net.AsterTrackerFactory(),
+      binance: new Binance.Net.BinanceTrackerFactory(),
+      bybit:   new Bybit.Net.BybitTrackerFactory(),
+      // ... other exchange tracker factories
+  );
+  ```
+</CodeGroup>
+
+## Kline trackers
+
+A kline tracker subscribes to live candlestick updates and maintains a collection of `SharedKline` objects.
+
+```csharp
+using CryptoExchange.Net.SharedApis;
+using CryptoExchange.Net.Trackers.Klines;
+
+var symbol   = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+var interval = SharedKlineInterval.OneHour;
+
+IKlineTracker? tracker = factory.CreateKlineTracker(
+    exchange: "Binance",
+    symbol:   symbol,
+    interval: interval,
+    limit:    100);           // keep the last 100 candles
+
+if (tracker is null)
+{
+    Console.WriteLine("Exchange or interval not supported");
+    return;
+}
+
+// Connect and start receiving updates
+await tracker.StartAsync();
+
+// Access the current klines
+foreach (var kline in tracker.Klines)
+    Console.WriteLine($"{kline.OpenTime:yyyy-MM-dd HH:mm} O:{kline.OpenPrice} H:{kline.HighPrice} L:{kline.LowPrice} C:{kline.ClosePrice}");
+```
+
+You can also bound the window by time instead of (or in addition to) count:
+
+```csharp
+IKlineTracker? tracker = factory.CreateKlineTracker(
+    exchange: "Bybit",
+    symbol:   new SharedSymbol(TradingMode.PerpetualLinear, "BTC", "USDT"),
+    interval: SharedKlineInterval.FifteenMinutes,
+    period:   TimeSpan.FromHours(24)); // only keep the last 24 hours
+```
+
+### Using exchange-specific tracker factories
+
+```csharp
+// Binance-specific creation
+IKlineTracker binanceTracker = factory.Binance.CreateKlineTracker(
+    symbol,
+    SharedKlineInterval.OneMinute);
+```
+
+## Trade trackers
+
+A trade tracker subscribes to the public trades stream and maintains a rolling list of `SharedTrade` objects.
+
+```csharp
+using CryptoExchange.Net.SharedApis;
+using CryptoExchange.Net.Trackers.Trades;
+
+var symbol = new SharedSymbol(TradingMode.Spot, "BTC", "USDT");
+
+ITradeTracker? tracker = factory.CreateTradeTracker(
+    exchange: "OKX",
+    symbol:   symbol,
+    limit:    500,                        // keep the last 500 trades
+    period:   TimeSpan.FromMinutes(5));   // or only the last 5 minutes
+
+if (tracker is null)
+{
+    Console.WriteLine("Exchange not supported for trade tracking");
+    return;
+}
+
+await tracker.StartAsync();
+
+foreach (var trade in tracker.Trades)
+    Console.WriteLine($"{trade.Timestamp:HH:mm:ss.fff}  {(trade.Side == SharedOrderSide.Buy ? "BUY " : "SELL")}  {trade.Quantity} @ {trade.Price}");
+```
+
+## User data trackers
+
+User data trackers require authentication and maintain live copies of balances, open orders, and — for futures — positions.
+
+### Spot user data tracker
+
+```csharp
+using CryptoExchange.Net.Trackers.UserData.Interfaces;
+using CryptoExchange.Net.Trackers.UserData.Objects;
+
+// Using pre-configured credentials (e.g. via DI or client options)
+IUserSpotDataTracker? spotTracker = factory.CreateUserSpotDataTracker(
+    exchange: "Binance");
+
+await spotTracker!.StartAsync();
+
+// Current balances
+foreach (var balance in spotTracker.Balances)
+    Console.WriteLine($"{balance.Asset}: {balance.Available} available, {balance.Total} total");
+
+// Open orders
+foreach (var order in spotTracker.Orders)
+    Console.WriteLine($"Order {order.OrderId}: {order.Symbol} {order.Side} {order.Quantity} @ {order.Price}");
+```
+
+Create trackers for all supported exchanges at once using the global (DI-configured) credentials:
+
+```csharp
+// Create spot data trackers for all supported exchanges
+IUserSpotDataTracker[] trackers = factory.CreateUserSpotDataTrackers(
+    exchanges: ["Binance", "Bybit"]);
+
+foreach (var t in trackers)
+    await t.StartAsync();
+```
+
+Create a tracker for a specific user and explicit credentials:
+
+```csharp
+var credentials = new ExchangeCredentials
+{
+    Binance = new BinanceCredentials("api-key", "api-secret"),
+    Bybit   = new BybitCredentials("api-key", "api-secret"),
+};
+
+// Single exchange with explicit user credentials
+IUserSpotDataTracker? tracker = factory.CreateUserSpotDataTracker(
+    exchange:       "Binance",
+    userIdentifier: "user-1",
+    credentials:    credentials);
+
+// Multiple exchanges with explicit user credentials
+IUserSpotDataTracker[] trackers = factory.CreateUserSpotDataTracker(
+    userIdentifier: "user-1",
+    credentials:    credentials,
+    exchanges:      ["Binance", "Bybit"]);
+
+foreach (var t in trackers)
+    await t.StartAsync();
+```
+
+### Futures user data tracker
+
+```csharp
+using CryptoExchange.Net.Trackers.UserData.Interfaces;
+
+IUserFuturesDataTracker? futuresTracker = factory.CreateUserFuturesDataTracker(
+    exchange:  "Bybit",
+    tradeMode: TradingMode.PerpetualLinear);
+
+await futuresTracker!.StartAsync();
+
+// Open positions
+foreach (var position in futuresTracker.Positions)
+    Console.WriteLine($"{position.Symbol}: {position.Quantity} contracts, unrealized PnL: {position.UnrealizedPnl}");
+
+// Open futures orders
+foreach (var order in futuresTracker.Orders)
+    Console.WriteLine($"Order {order.OrderId}: {order.Symbol} {order.Side} {order.Quantity}");
+```
+
+Create futures trackers for all supported exchanges at once:
+
+```csharp
+IUserFuturesDataTracker[] allFuturesTrackers = factory.CreateUserFuturesDataTrackers(
+    tradeMode: TradingMode.PerpetualLinear,
+    exchanges: ["Binance", "Bybit", "OKX"]);
+
+foreach (var t in allFuturesTrackers)
+    await t.StartAsync();
+```
+
+Create futures trackers with explicit user credentials:
+
+```csharp
+var credentials = new ExchangeCredentials
+{
+    Bybit = new BybitCredentials("api-key", "api-secret"),
+};
+
+IUserFuturesDataTracker[] userFuturesTrackers = factory.CreateUserFuturesDataTracker(
+    userIdentifier: "user-1",
+    tradingMode:    TradingMode.PerpetualLinear,
+    credentials:    credentials,
+    exchanges:      ["Bybit"]);
+
+foreach (var t in userFuturesTrackers)
+    await t.StartAsync();
+```
+
+## Stopping trackers
+
+All tracker types implement `StopAsync`:
+
+```csharp
+await tracker.StopAsync();
+```
+
+<Note>
+  Trackers open their own WebSocket connections independently. If the connection is interrupted, the tracker will attempt to reconnect and re-synchronize its state automatically.
+</Note>
+
+<Tip>
+  Use `limit` and `period` together to control memory usage. For example, `limit: 1000, period: TimeSpan.FromHours(1)` keeps at most 1 000 items and discards any that are older than an hour — whichever constraint is reached first.
+</Tip>

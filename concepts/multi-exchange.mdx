@@ -1,0 +1,238 @@
+---
+title: "Multi-exchange requests"
+description: "Query multiple exchanges with a single call"
+---
+
+`ExchangeRestClient` and `ExchangeSocketClient` expose methods that fan out a single request or subscription across multiple exchanges concurrently. This eliminates the boilerplate of managing parallel tasks, error handling per exchange, and result aggregation.
+
+## The three variants
+
+Every multi-exchange method is available in three forms:
+
+<CardGroup cols={3}>
+  <Card title="Single exchange" icon="circle-dot">
+    Pass a named exchange string. Returns a single `ExchangeWebResult<T>`.
+  </Card>
+  <Card title="Task array" icon="list-check">
+    Pass an array of exchange names (or omit for all). `await` collects all results at once as `ExchangeWebResult<T>[]`.
+  </Card>
+  <Card title="IAsyncEnumerable" icon="bolt">
+    Results are `yield`-returned as each exchange responds — ideal for showing progressive UI or processing results immediately without waiting for slow exchanges.
+  </Card>
+</CardGroup>
+
+## REST examples
+
+### Single exchange
+
+```csharp
+var client = new ExchangeRestClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+ExchangeWebResult<SharedSpotTicker> result = await client.GetSpotTickerAsync(
+    "Binance",
+    new GetTickerRequest(symbol));
+
+if (result.Success)
+    Console.WriteLine($"Binance ETH/USDT: {result.Data.LastPrice}");
+```
+
+### Task array (wait for all results)
+
+```csharp
+var client = new ExchangeRestClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+ExchangeWebResult<SharedSpotTicker>[] results = await client.GetSpotTickerAsync(
+    new GetTickerRequest(symbol),
+    ["Binance", "Bybit", "OKX", "Kraken"]);
+
+foreach (var result in results)
+{
+    if (!result.Success)
+        Console.WriteLine($"{result.Exchange} error: {result.Error}");
+    else
+        Console.WriteLine($"{result.Exchange}: {result.Data.LastPrice}");
+}
+```
+
+### IAsyncEnumerable (streaming results)
+
+```csharp
+var client = new ExchangeRestClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+await foreach (var result in client.GetSpotTickerAsyncEnumerable(
+    new GetTickerRequest(symbol),
+    ["Binance", "Bybit", "HyperLiquid", "OKX"]))
+{
+    if (!result.Success)
+        Console.WriteLine($"{result.Exchange} error: {result.Error}");
+    else
+        Console.WriteLine($"{result.Exchange}: {result.Data.LastPrice}");
+}
+```
+
+<Tip>
+  The `IAsyncEnumerable` variant is the best choice for dashboards or CLIs where you want to display each exchange result as soon as it arrives rather than waiting for the slowest one.
+</Tip>
+
+## Filtering by exchange
+
+All multi-exchange methods accept an optional `IEnumerable<string>? exchanges` parameter. When omitted or `null`, every exchange that supports the request type is queried.
+
+```csharp
+// Query only these three exchanges
+var results = await client.GetSpotTickerAsync(
+    new GetTickerRequest(new SharedSymbol(TradingMode.Spot, "BTC", "USDT")),
+    [Exchange.Binance, Exchange.Kucoin, Exchange.GateIo]);
+
+// Query all supported exchanges
+var allResults = await client.GetSpotTickerAsync(
+    new GetTickerRequest(new SharedSymbol(TradingMode.Spot, "BTC", "USDT")));
+```
+
+Use the `Exchange` static class for named string constants, or pass exchange name strings directly.
+
+## ExchangeWebResult\<T\>
+
+Every result — whether from a single-exchange or multi-exchange call — is wrapped in `ExchangeWebResult<T>`. This type carries:
+
+| Property | Type | Description |
+|---|---|---|
+| `Exchange` | `string` | The exchange that produced this result |
+| `Success` | `bool` | Whether the request succeeded |
+| `Error` | `Error?` | Error details when `Success` is `false` |
+| `Data` | `T` | The response payload when `Success` is `true` |
+| `DataTime` | `DateTime` | Timestamp of the data |
+
+### Error handling
+
+```csharp
+foreach (var result in results)
+{
+    if (!result.Success)
+    {
+        // result.Error is non-null when Success is false
+        Console.WriteLine($"[{result.Exchange}] Failed: {result.Error}");
+        continue;
+    }
+
+    // Safe to access result.Data
+    Console.WriteLine($"[{result.Exchange}] Last price: {result.Data.LastPrice}");
+}
+```
+
+<Warning>
+  Always check `result.Success` before accessing `result.Data`. Individual exchanges can fail independently — a network error on one exchange does not prevent results from others.
+</Warning>
+
+## Available multi-exchange methods
+
+<AccordionGroup>
+  <Accordion title="Spot">
+    ```csharp
+    // Ticker for a specific symbol
+    Task<ExchangeWebResult<SharedSpotTicker>[]> GetSpotTickerAsync(
+        GetTickerRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    IAsyncEnumerable<ExchangeWebResult<SharedSpotTicker>> GetSpotTickerAsyncEnumerable(
+        GetTickerRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    // All tickers on an exchange
+    Task<ExchangeWebResult<SharedSpotTicker[]>[]> GetSpotTickersAsync(
+        GetTickersRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+    ```
+  </Accordion>
+  <Accordion title="Futures">
+    ```csharp
+    // Futures ticker for a specific symbol
+    Task<ExchangeWebResult<SharedFuturesTicker>[]> GetFuturesTickerAsync(
+        GetTickerRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    IAsyncEnumerable<ExchangeWebResult<SharedFuturesTicker>> GetFuturesTickerAsyncEnumerable(
+        GetTickerRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+    ```
+  </Accordion>
+  <Accordion title="Klines">
+    ```csharp
+    // Spot / futures klines
+    Task<ExchangeWebResult<SharedKline[]>[]> GetKlinesAsync(
+        GetKlinesRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    IAsyncEnumerable<ExchangeWebResult<SharedKline[]>> GetKlinesAsyncEnumerable(
+        GetKlinesRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    // Mark price klines
+    Task<ExchangeWebResult<SharedFuturesKline[]>[]> GetMarkPriceKlinesAsync(
+        GetKlinesRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    // Index price klines
+    Task<ExchangeWebResult<SharedFuturesKline[]>[]> GetIndexPriceKlinesAsync(
+        GetKlinesRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+    ```
+  </Accordion>
+  <Accordion title="Trades & order book">
+    ```csharp
+    // Recent public trades
+    Task<ExchangeWebResult<SharedTrade[]>[]> GetRecentTradesAsync(
+        GetRecentTradesRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    // Historical trades
+    Task<ExchangeWebResult<SharedTrade[]>[]> GetTradeHistoryAsync(
+        GetTradeHistoryRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+
+    // Order book
+    Task<ExchangeWebResult<SharedOrderBook>[]> GetOrderBookAsync(
+        GetOrderBookRequest request,
+        IEnumerable<string>? exchanges = null,
+        CancellationToken ct = default);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Multi-exchange WebSocket subscriptions
+
+The same fan-out pattern applies to `ExchangeSocketClient`. Passing a list of exchange names creates independent subscriptions and returns one `ExchangeResult<UpdateSubscription>` per exchange:
+
+```csharp
+var socketClient = new ExchangeSocketClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+ExchangeResult<UpdateSubscription>[] subscriptions =
+    await socketClient.SubscribeToTickerUpdatesAsync(
+        new SubscribeTickerRequest(symbol),
+        data => Console.WriteLine($"[{data.Exchange}] {data.Data.Symbol}: {data.Data.LastPrice}"),
+        [Exchange.Binance, Exchange.Bybit, Exchange.OKX]);
+
+// Check which subscriptions succeeded
+foreach (var sub in subscriptions)
+{
+    if (!sub.Success)
+        Console.WriteLine($"[{sub.Exchange}] Subscribe failed: {sub.Error}");
+}
+```
+
+See [WebSocket Client](/concepts/socket-client) for the full list of available subscription methods.

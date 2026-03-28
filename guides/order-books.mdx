@@ -1,0 +1,178 @@
+---
+title: "Order books"
+description: "Subscribe to live order book data using ExchangeOrderBookFactory"
+---
+
+`ExchangeOrderBookFactory` creates locally-maintained order book instances (`ISymbolOrderBook`) for any supported exchange. Each order book opens a WebSocket subscription and continuously applies incremental updates, so the `Asks` and `Bids` collections always reflect the current state of the market.
+
+## Register the factory
+
+<CodeGroup>
+  ```csharp Dependency injection
+  // Program.cs / Startup.cs
+  builder.Services.AddCryptoClients();
+  // IExchangeOrderBookFactory is registered automatically
+  ```
+
+  ```csharp Direct construction
+  using CryptoClients.Net;
+
+  IExchangeOrderBookFactory factory = new ExchangeOrderBookFactory(
+      aster:      new Aster.Net.AsterOrderBookFactory(),
+      binance:    new Binance.Net.BinanceOrderBookFactory(),
+      bybit:      new Bybit.Net.BybitOrderBookFactory(),
+      // ... other exchange factories
+  );
+  ```
+</CodeGroup>
+
+## Create an order book
+
+### Using a SharedSymbol (cross-exchange)
+
+The `Create(string exchange, SharedSymbol symbol, ...)` overload resolves the correct depth and options for the target exchange automatically.
+
+```csharp
+using CryptoExchange.Net.SharedApis;
+
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+// Create a Binance order book for ETH/USDT
+ISymbolOrderBook? book = factory.Create("Binance", symbol, minimalDepth: 10);
+
+if (book is null)
+{
+    Console.WriteLine("Exchange or symbol not supported");
+    return;
+}
+```
+
+The `minimalDepth` parameter is a hint: the factory selects the smallest supported depth that satisfies the request. For example, Binance supports depths of 5, 10, and 20 — requesting `minimalDepth: 10` results in a 10-level book.
+
+### Using exchange-specific factories
+
+Each exchange has a dedicated factory property with full access to that exchange's options:
+
+```csharp
+// Binance-specific creation with custom options
+var binanceBook = factory.Binance.Create(symbol, opts =>
+{
+    opts.Limit = 20;
+    opts.UpdateInterval = 100; // milliseconds
+});
+
+// Bybit with a 50-level book
+var bybitBook = factory.Bybit.Create(symbol, opts =>
+{
+    opts.Limit = 50;
+});
+
+// Kraken with a 100-level book
+var krakenBook = factory.Kraken.Create(symbol, opts =>
+{
+    opts.Limit = 100;
+});
+```
+
+### Create books on all exchanges at once
+
+```csharp
+var symbol = new SharedSymbol(TradingMode.Spot, "BTC", "USDT");
+
+// Returns an ISymbolOrderBook[] for every exchange that supports this symbol
+ISymbolOrderBook[] books = factory.Create(symbol, minimalDepth: 10);
+
+Console.WriteLine($"Created {books.Length} order books");
+```
+
+You can also limit to specific exchanges:
+
+```csharp
+ISymbolOrderBook[] books = factory.Create(
+    symbol,
+    minimalDepth: 5,
+    exchanges: ["Binance", "Bybit", "OKX"]);
+```
+
+## Start and access the order book
+
+After creating a book, call `StartAsync` to open the WebSocket connection and begin receiving updates.
+
+```csharp
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+var book = factory.Create("Binance", symbol, minimalDepth: 10)!;
+
+// Connect and wait for the initial snapshot
+var startResult = await book.StartAsync();
+if (!startResult.Success)
+{
+    Console.WriteLine($"Failed to start order book: {startResult.Error}");
+    return;
+}
+
+// Access asks and bids (always sorted: asks ascending, bids descending)
+Console.WriteLine($"Best ask: {book.BestAsk?.Price} @ {book.BestAsk?.Quantity}");
+Console.WriteLine($"Best bid: {book.BestBid?.Price} @ {book.BestBid?.Quantity}");
+
+Console.WriteLine("\nTop 5 asks:");
+foreach (var ask in book.Asks.Take(5))
+    Console.WriteLine($"  {ask.Price} — {ask.Quantity}");
+
+Console.WriteLine("\nTop 5 bids:");
+foreach (var bid in book.Bids.Take(5))
+    Console.WriteLine($"  {bid.Price} — {bid.Quantity}");
+```
+
+## React to updates
+
+Subscribe to the `OnOrderBookUpdate` event to get called whenever the book changes:
+
+```csharp
+book.OnOrderBookUpdate += (updates) =>
+{
+    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] Book updated — spread: {book.BestAsk?.Price - book.BestBid?.Price}");
+};
+```
+
+## Stop an order book
+
+```csharp
+await book.StopAsync();
+```
+
+## Full example
+
+```csharp
+using CryptoClients.Net;
+using CryptoExchange.Net.SharedApis;
+
+var factory = new ExchangeOrderBookFactory(/* inject or construct per-exchange factories */);
+
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+var book = factory.Create("Binance", symbol, minimalDepth: 10)!;
+
+book.OnOrderBookUpdate += (_) =>
+{
+    Console.WriteLine($"Spread: {book.BestAsk?.Price - book.BestBid?.Price:F2}");
+};
+
+var result = await book.StartAsync();
+if (!result.Success)
+{
+    Console.WriteLine($"Error: {result.Error}");
+    return;
+}
+
+Console.WriteLine($"Order book started — {book.Asks.Count()} ask levels, {book.Bids.Count()} bid levels");
+Console.ReadLine();
+
+await book.StopAsync();
+```
+
+<Note>
+  Order books maintain synchronization automatically. If the WebSocket connection drops, the book will reconnect and resynchronize without any manual intervention.
+</Note>
+
+<Tip>
+  Use `minimalDepth` rather than hardcoding exchange-specific depth values. The factory knows which depths each exchange actually supports and will pick the closest valid option.
+</Tip>

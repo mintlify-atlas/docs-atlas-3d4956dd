@@ -1,0 +1,245 @@
+---
+title: "WebSocket Client"
+description: "Using ExchangeSocketClient for real-time WebSocket data"
+---
+
+`ExchangeSocketClient` is the main entry point for all WebSocket (real-time push) interactions. It provides the same exchange-property pattern as `ExchangeRestClient`, and adds unified subscribe methods that can target one exchange or many simultaneously. The client manages connection lifecycle automatically, including reconnection on drop.
+
+## Construction
+
+<Tabs>
+  <Tab title="Direct construction">
+    ```csharp
+    // All exchange socket clients are created with default options
+    IExchangeSocketClient socketClient = new ExchangeSocketClient();
+    ```
+  </Tab>
+  <Tab title="With options">
+    ```csharp
+    IExchangeSocketClient socketClient = new ExchangeSocketClient(
+        globalOptions: options =>
+        {
+            options.ReconnectInterval = TimeSpan.FromSeconds(5);
+        },
+        binanceSocketOptions: options =>
+        {
+            options.ApiCredentials = new BinanceCredentials("key", "secret");
+        }
+    );
+    ```
+  </Tab>
+  <Tab title="Dependency injection">
+    ```csharp
+    builder.Services.AddCryptoClients();
+
+    // Inject alongside the REST client
+    public class MarketDataService
+    {
+        public MarketDataService(
+            IExchangeRestClient restClient,
+            IExchangeSocketClient socketClient)
+        { }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Subscribing to updates
+
+Every `SubscribeTo*` method returns `ExchangeResult<UpdateSubscription>`, which you use to manage the active subscription. There are two overloads for each subscription type: one that targets a single named exchange, and one that fans out to multiple exchanges.
+
+### Single-exchange subscription
+
+```csharp
+var socketClient = new ExchangeSocketClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+var result = await socketClient.SubscribeToTickerUpdatesAsync(
+    "Binance",
+    new SubscribeTickerRequest(symbol),
+    data => Console.WriteLine($"[{data.Exchange}] {data.Data.Symbol}: {data.Data.LastPrice}"));
+
+if (!result.Success)
+{
+    Console.WriteLine($"Subscription failed: {result.Error}");
+    return;
+}
+
+UpdateSubscription subscription = result.Data;
+```
+
+### Multi-exchange subscription
+
+```csharp
+var socketClient = new ExchangeSocketClient();
+var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+// Subscribe on Binance and OKX simultaneously
+var results = await socketClient.SubscribeToTickerUpdatesAsync(
+    new SubscribeTickerRequest(symbol),
+    data => Console.WriteLine($"[{data.Exchange}] {data.Data.Symbol}: {data.Data.LastPrice}"),
+    [Exchange.Binance, Exchange.OKX]);
+
+// Check each result individually
+foreach (var result in results)
+{
+    if (!result.Success)
+        Console.WriteLine($"{result.Exchange} subscription failed: {result.Error}");
+}
+```
+
+<Note>
+  When `exchanges` is omitted (or `null`), the subscription is created on **all** exchanges that support the request type.
+</Note>
+
+## Managing subscriptions
+
+The `UpdateSubscription` object returned by each successful subscribe call lets you pause, resume, or cancel the stream.
+
+```csharp
+// Unsubscribe from a single stream
+await subscription.CloseAsync();
+
+// Unsubscribe and close every connection on the client
+await socketClient.UnsubscribeAllAsync();
+```
+
+## Available subscription types
+
+<AccordionGroup>
+  <Accordion title="Market data">
+    ```csharp
+    // Single symbol ticker
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToTickerUpdatesAsync(
+        string exchange,
+        SubscribeTickerRequest request,
+        Action<DataEvent<SharedSpotTicker>> handler,
+        CancellationToken ct = default);
+
+    // All-symbols ticker stream
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToAllTickerUpdatesAsync(
+        string exchange,
+        SubscribeAllTickersRequest request,
+        Action<DataEvent<SharedSpotTicker[]>> handler,
+        CancellationToken ct = default);
+
+    // Kline / candlestick updates
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToKlineUpdatesAsync(
+        string exchange,
+        SubscribeKlineRequest request,
+        Action<DataEvent<SharedKline>> handler,
+        CancellationToken ct = default);
+
+    // Order book snapshots
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToOrderBookUpdatesAsync(
+        string exchange,
+        SubscribeOrderBookRequest request,
+        Action<DataEvent<SharedOrderBook>> handler,
+        CancellationToken ct = default);
+
+    // Public trade feed
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToTradeUpdatesAsync(
+        string exchange,
+        SubscribeTradeRequest request,
+        Action<DataEvent<SharedTrade[]>> handler,
+        CancellationToken ct = default);
+
+    // Best ask/bid (book ticker)
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToBookTickerUpdatesAsync(
+        string exchange,
+        SubscribeBookTickerRequest request,
+        Action<DataEvent<SharedBookTicker>> handler,
+        CancellationToken ct = default);
+    ```
+  </Accordion>
+  <Accordion title="User data">
+    ```csharp
+    // Account balance updates
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToBalanceUpdatesAsync(
+        string exchange,
+        SubscribeBalancesRequest request,
+        Action<DataEvent<SharedBalance[]>> handler,
+        ExchangeWebResult<string>[]? listenKeyResults = null,
+        CancellationToken ct = default);
+
+    // Spot order updates
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToSpotOrderUpdatesAsync(
+        string exchange,
+        SubscribeSpotOrderRequest request,
+        Action<DataEvent<SharedSpotOrder[]>> handler,
+        ExchangeWebResult<string>[]? listenKeyResults = null,
+        CancellationToken ct = default);
+
+    // Futures order updates
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToFuturesOrderUpdatesAsync(
+        string exchange,
+        SubscribeFuturesOrderRequest request,
+        Action<DataEvent<SharedFuturesOrder[]>> handler,
+        ExchangeWebResult<string>[]? listenKeyResults = null,
+        CancellationToken ct = default);
+
+    // User trade execution updates
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToUserTradeUpdatesAsync(
+        string exchange,
+        SubscribeUserTradeRequest request,
+        Action<DataEvent<SharedUserTrade[]>> handler,
+        ExchangeWebResult<string>[]? listenKeyResults = null,
+        CancellationToken ct = default);
+
+    // Position updates (futures)
+    Task<ExchangeResult<UpdateSubscription>> SubscribeToPositionUpdatesAsync(
+        string exchange,
+        SubscribePositionRequest request,
+        Action<DataEvent<SharedPosition[]>> handler,
+        ExchangeWebResult<string>[]? listenKeyResults = null,
+        CancellationToken ct = default);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Connection monitoring
+
+The client exposes three read-only properties to help you observe runtime behaviour:
+
+```csharp
+// Total active WebSocket connections across all exchange clients
+int connections = socketClient.CurrentConnections;
+
+// Total active subscriptions across all connections
+int subscriptions = socketClient.CurrentSubscriptions;
+
+// Aggregate incoming data rate in kilobytes per second
+double kbps = socketClient.IncomingKbps;
+```
+
+## Exchange-specific access
+
+Just like the REST client, every supported exchange is directly accessible as a typed property, giving you full access to the exchange-native WebSocket API when the shared interfaces are not enough:
+
+```csharp
+// Use the Binance-specific socket client directly
+var sub = await socketClient.Binance.SpotApi.ExchangeData
+    .SubscribeToMiniTickerUpdatesAsync("ETHUSDT", data =>
+    {
+        Console.WriteLine($"Binance ETH/USDT: {data.Data.LastPrice}");
+    });
+```
+
+Available properties: `Aster`, `Binance`, `BingX`, `Bitfinex`, `Bitget`, `BitMart`, `BitMEX`, `Bitstamp`, `BloFin`, `Bybit`, `Coinbase`, `CoinEx`, `CoinW`, `CryptoCom`, `DeepCoin`, `GateIo`, `HTX`, `HyperLiquid`, `Kraken`, `Kucoin`, `Mexc`, `OKX`, `Polymarket`, `Toobit`, `Upbit`, `WhiteBit`, `XT`.
+
+## Automatic reconnection
+
+WebSocket connections are managed by the underlying `CryptoExchange.Net` library. If a connection drops, the client automatically attempts to reconnect and re-establish all active subscriptions. Reconnect behaviour can be tuned via options:
+
+```csharp
+var socketClient = new ExchangeSocketClient(
+    globalOptions: options =>
+    {
+        options.ReconnectInterval = TimeSpan.FromSeconds(5);
+    }
+);
+```
+
+<Tip>
+  User-data subscriptions on some exchanges (such as Binance) require a listen key. Obtain one via the REST client first and pass the result as `listenKeyResults` when subscribing.
+</Tip>

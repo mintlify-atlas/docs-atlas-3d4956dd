@@ -1,0 +1,270 @@
+---
+title: "ExchangeUserClientProvider"
+description: "API reference for managing per-user exchange clients"
+---
+
+```csharp
+public class ExchangeUserClientProvider : IExchangeUserClientProvider
+```
+
+`ExchangeUserClientProvider` manages isolated REST and WebSocket client instances on a per-user basis. Use this class when you need separate client state for multiple users — for example, in a multi-tenant trading application where each user has their own API credentials.
+
+Each user is identified by a `string userIdentifier`. Clients for a user are created on demand and cached internally. Calling `GetRestClient` or `GetSocketClient` with the same `userIdentifier` multiple times returns a client scoped to that user.
+
+## Overview example
+
+```csharp
+var provider = new ExchangeUserClientProvider();
+
+// Credentials for two different users
+var user1Creds = new ExchangeCredentials
+{
+    Binance = new BinanceCredentials("user1Key", "user1Secret")
+};
+var user2Creds = new ExchangeCredentials
+{
+    Binance = new BinanceCredentials("user2Key", "user2Secret")
+};
+
+// Each call returns a client scoped to that user
+var restClientUser1 = provider.GetRestClient("user-1", user1Creds);
+var restClientUser2 = provider.GetRestClient("user-2", user2Creds);
+
+// Socket clients are also isolated per user
+var socketClientUser1 = provider.GetSocketClient("user-1");
+```
+
+---
+
+## Constructors
+
+### Options-based constructor
+
+Use this constructor when creating `ExchangeUserClientProvider` directly (without dependency injection).
+
+```csharp
+public ExchangeUserClientProvider(
+    Action<GlobalExchangeOptions>? globalOptions = null,
+    Action<AsterOptions>? asterOptions = null,
+    Action<BinanceOptions>? binanceOptions = null,
+    Action<BingXOptions>? bingxOptions = null,
+    Action<BitfinexOptions>? bitfinexOptions = null,
+    Action<BitgetOptions>? bitgetOptions = null,
+    Action<BitMartOptions>? bitMartOptions = null,
+    Action<BitMEXOptions>? bitMEXOptions = null,
+    Action<BitstampOptions>? bitstampOptions = null,
+    Action<BloFinOptions>? bloFinOptions = null,
+    Action<BybitOptions>? bybitOptions = null,
+    Action<CoinbaseOptions>? coinbaseOptions = null,
+    Action<CoinExOptions>? coinExOptions = null,
+    Action<CoinGeckoRestOptions>? coinGeckoRestOptions = null,
+    Action<CoinWOptions>? coinWOptions = null,
+    Action<CryptoComOptions>? cryptoComOptions = null,
+    Action<DeepCoinOptions>? deepCoinOptions = null,
+    Action<GateIoOptions>? gateIoOptions = null,
+    Action<HTXOptions>? htxOptions = null,
+    Action<HyperLiquidOptions>? hyperLiquidOptions = null,
+    Action<KrakenOptions>? krakenOptions = null,
+    Action<KucoinOptions>? kucoinOptions = null,
+    Action<MexcOptions>? mexcOptions = null,
+    Action<OKXOptions>? okxOptions = null,
+    Action<PolymarketOptions>? polymarketOptions = null,
+    Action<ToobitOptions>? toobitOptions = null,
+    Action<UpbitRestOptions>? upbitRestOptions = null,
+    Action<UpbitSocketOptions>? upbitSocketOptions = null,
+    Action<WhiteBitOptions>? whiteBitOptions = null,
+    Action<XTOptions>? xtOptions = null)
+```
+
+All parameters are optional. Only supply options for the exchanges you want to configure. Settings in `globalOptions` (such as proxy, rate limiting, and default credentials) are applied to all exchange clients unless overridden by exchange-specific options.
+
+**Example — configure globally and override Bybit:**
+
+```csharp
+var provider = new ExchangeUserClientProvider(
+    globalOptions: options =>
+    {
+        options.OutputOriginalData = true;
+        options.RateLimiterEnabled = true;
+    },
+    bybitOptions: options =>
+    {
+        options.Environment = BybitEnvironment.Eu;
+    });
+```
+
+### Dependency injection constructor
+
+Used internally when all per-exchange provider interfaces are registered in the DI container via `AddCryptoClients`.
+
+```csharp
+public ExchangeUserClientProvider(
+    IAsterUserClientProvider asterProvider,
+    IBinanceUserClientProvider binanceProvider,
+    IBingXUserClientProvider bingXProvider,
+    // ... one argument per exchange
+    IUpbitRestClient upbitRestClient,
+    IUpbitSocketClient upbitSocketClient,
+    IWhiteBitUserClientProvider whiteBitProvider,
+    IXTUserClientProvider xtProvider)
+```
+
+---
+
+## Methods
+
+### InitializeUserClient
+
+Pre-creates and caches both the REST and WebSocket clients for a user. Call this upfront if you want to avoid passing `credentials` on every subsequent `GetRestClient` / `GetSocketClient` call.
+
+```csharp
+void InitializeUserClient(
+    string userIdentifier,
+    ExchangeCredentials credentials,
+    Dictionary<string, string?> environments);
+```
+
+<ParamField body="userIdentifier" type="string" required>
+  A unique identifier for the user. This is used as the cache key.
+</ParamField>
+
+<ParamField body="credentials" type="ExchangeCredentials" required>
+  The API credentials for this user. Populate only the exchanges this user will access.
+</ParamField>
+
+<ParamField body="environments" type="Dictionary<string, string?>" required>
+  A dictionary mapping exchange names to environment names (e.g. `"Testnet"`). Pass an empty dictionary to use the default Live environment for all exchanges.
+</ParamField>
+
+```csharp
+provider.InitializeUserClient(
+    "user-1",
+    new ExchangeCredentials
+    {
+        Binance = new BinanceCredentials("key", "secret"),
+        Bybit = new BybitCredentials("key", "secret")
+    },
+    new Dictionary<string, string?>
+    {
+        [Exchange.Binance] = "Testnet"
+    });
+
+// Now you can get clients without passing credentials again
+var restClient = provider.GetRestClient("user-1");
+```
+
+---
+
+### GetRestClient
+
+Returns the REST client for a specific user. If no client exists yet for this user, it is created using the provided `credentials` and `environments`.
+
+```csharp
+IExchangeRestClient GetRestClient(
+    string userIdentifier,
+    ExchangeCredentials? credentials = null,
+    Dictionary<string, string?>? environments = null);
+```
+
+<ParamField body="userIdentifier" type="string" required>
+  The unique identifier for the user.
+</ParamField>
+
+<ParamField body="credentials" type="ExchangeCredentials?">
+  Credentials for this user. Required the first time a client is requested for this `userIdentifier`, unless `InitializeUserClient` was called first.
+</ParamField>
+
+<ParamField body="environments" type="Dictionary<string, string?>?">
+  Optional per-exchange environment overrides. Keys are exchange names; values are environment names such as `"Testnet"`.
+</ParamField>
+
+<ResponseField name="return" type="IExchangeRestClient">
+  A REST client instance scoped to the specified user.
+</ResponseField>
+
+```csharp
+var restClient = provider.GetRestClient(
+    "user-42",
+    new ExchangeCredentials
+    {
+        OKX = new OKXCredentials("key", "secret", "passphrase")
+    });
+
+var balances = await restClient.GetBalancesAsync("OKX", new GetBalancesRequest());
+```
+
+---
+
+### GetSocketClient
+
+Returns the WebSocket client for a specific user. If no client exists yet for this user, it is created using the provided `credentials` and `environments`.
+
+```csharp
+IExchangeSocketClient GetSocketClient(
+    string userIdentifier,
+    ExchangeCredentials? credentials = null,
+    Dictionary<string, string?>? environments = null);
+```
+
+<ParamField body="userIdentifier" type="string" required>
+  The unique identifier for the user.
+</ParamField>
+
+<ParamField body="credentials" type="ExchangeCredentials?">
+  Credentials for this user. Required the first time a socket client is requested, unless `InitializeUserClient` was called first.
+</ParamField>
+
+<ParamField body="environments" type="Dictionary<string, string?>?">
+  Optional per-exchange environment overrides.
+</ParamField>
+
+<ResponseField name="return" type="IExchangeSocketClient">
+  A WebSocket client instance scoped to the specified user.
+</ResponseField>
+
+```csharp
+var socketClient = provider.GetSocketClient("user-42");
+
+await socketClient.SubscribeToSpotOrderUpdatesAsync(
+    "Binance",
+    new SubscribeSpotOrderRequest(),
+    data => Console.WriteLine($"Order update: {data.Data[0].Status}"));
+```
+
+---
+
+### ClearUserClients
+
+Removes cached clients for a user, freeing associated resources. Call this when a user changes credentials or logs out.
+
+```csharp
+void ClearUserClients(string userIdentifier, string? exchange = null);
+```
+
+<ParamField body="userIdentifier" type="string" required>
+  The unique identifier for the user whose clients should be cleared.
+</ParamField>
+
+<ParamField body="exchange" type="string?">
+  An optional exchange name. When provided, only the clients for that exchange are cleared. When `null` (the default), all exchange clients for the user are cleared.
+</ParamField>
+
+```csharp
+// Clear all clients for user-1 (e.g. after credential rotation)
+provider.ClearUserClients("user-1");
+
+// Clear only Binance clients for user-2
+provider.ClearUserClients("user-2", Exchange.Binance);
+```
+
+<Warning>
+After calling `ClearUserClients`, you must pass credentials again the next time you call `GetRestClient` or `GetSocketClient` for that user, or call `InitializeUserClient` first.
+</Warning>
+
+---
+
+## Notes
+
+- **Upbit** does not support authentication, so its REST and WebSocket clients are shared across all users rather than being created per-user.
+- **CoinGecko** is a public data platform without user-scoped credentials. Its REST client is shared across all users.
+- When `environments` is not provided, all exchange clients use their default `Live` environment.

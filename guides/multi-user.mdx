@@ -1,0 +1,171 @@
+---
+title: "Multi-user client management"
+description: "Manage isolated client instances for multiple users using ExchangeUserClientProvider"
+---
+
+When building trading bots or platforms that serve multiple users, each user typically has their own API keys for one or more exchanges. `ExchangeUserClientProvider` manages a separate set of REST and WebSocket clients per user, keyed by a string identifier, so credentials never bleed across accounts.
+
+<Steps>
+  <Step title="Create the provider">
+    Instantiate `ExchangeUserClientProvider` directly or register it via dependency injection. Exchange-level options such as environment or proxy settings can be passed at construction time and apply to all user clients created by the provider.
+
+    <CodeGroup>
+      ```csharp Direct construction
+      using CryptoClients.Net.Clients;
+
+      var provider = new ExchangeUserClientProvider();
+      ```
+
+      ```csharp With global options
+      using CryptoClients.Net.Clients;
+      using CryptoExchange.Net.Objects.Options;
+
+      var provider = new ExchangeUserClientProvider(
+          globalOptions: opts =>
+          {
+              opts.RateLimiterEnabled = true;
+              opts.RequestTimeout = TimeSpan.FromSeconds(10);
+          });
+      ```
+
+      ```csharp Dependency injection
+      // Program.cs / Startup.cs
+      // AddCryptoClients() automatically registers IExchangeUserClientProvider
+      builder.Services.AddCryptoClients();
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Define per-user credentials">
+    Build an `ExchangeCredentials` object for each user. Only populate the exchanges each user actually needs — omitted exchanges will have no credentials set.
+
+    ```csharp
+    using CryptoClients.Net.Models;
+    using Binance.Net.Objects.Options;
+    using Kucoin.Net.Objects.Options;
+    using OKX.Net.Objects.Options;
+
+    var user1Credentials = new ExchangeCredentials
+    {
+        Binance = new BinanceCredentials("binance-key-1", "binance-secret-1"),
+        Kucoin  = new KucoinCredentials("kucoin-key-1", "kucoin-secret-1", "kucoin-pass-1"),
+    };
+
+    var user2Credentials = new ExchangeCredentials
+    {
+        Binance = new BinanceCredentials("binance-key-2", "binance-secret-2"),
+        OKX     = new OKXCredentials("okx-key-2", "okx-secret-2", "okx-pass-2"),
+    };
+    ```
+  </Step>
+
+  <Step title="Pre-initialize user clients (optional)">
+    Call `InitializeUserClient` once per user to eagerly create and cache both REST and WebSocket clients. After this call, subsequent `GetRestClient` / `GetSocketClient` calls for the same identifier do not require credentials to be passed again.
+
+    ```csharp
+    provider.InitializeUserClient("user-1", user1Credentials, environments: new Dictionary<string, string?>());
+    provider.InitializeUserClient("user-2", user2Credentials, environments: new Dictionary<string, string?>());
+    ```
+
+    <Note>
+      Skipping `InitializeUserClient` is fine — credentials can be passed directly to `GetRestClient` or `GetSocketClient` on the first call for that user.
+    </Note>
+  </Step>
+
+  <Step title="Retrieve per-user REST clients">
+    `GetRestClient` returns a fully configured `IExchangeRestClient` scoped to the given user. The same underlying provider instance is re-used, so calling this multiple times for the same identifier is cheap.
+
+    ```csharp
+    // First call — credentials required (or use InitializeUserClient first)
+    var restClient1 = provider.GetRestClient("user-1", user1Credentials);
+    var restClient2 = provider.GetRestClient("user-2", user2Credentials);
+
+    // Subsequent calls for the same user — credentials optional
+    var restClient1Again = provider.GetRestClient("user-1");
+
+    // Place an order as user 1
+    var orderResult = await restClient1.Binance.SpotApi.Trading.PlaceOrderAsync(
+        "ETHUSDT",
+        Binance.Net.Enums.OrderSide.Buy,
+        Binance.Net.Enums.SpotOrderType.Market,
+        quoteQuantity: 50);
+    ```
+  </Step>
+
+  <Step title="Retrieve per-user WebSocket clients">
+    `GetSocketClient` works the same way and returns an `IExchangeSocketClient` with the user's credentials already applied, ready for authenticated subscriptions.
+
+    ```csharp
+    var socketClient1 = provider.GetSocketClient("user-1");
+    var socketClient2 = provider.GetSocketClient("user-2");
+
+    // Subscribe to spot order updates for user 1
+    var sub = await socketClient1.SubscribeToSpotOrderUpdatesAsync(
+        "Binance",
+        new SubscribeSpotOrderRequest(),
+        update =>
+        {
+            foreach (var order in update.Data)
+                Console.WriteLine($"[user-1] Order {order.OrderId}: {order.Status}");
+        });
+    ```
+  </Step>
+
+  <Step title="Clear cached clients when credentials change">
+    When a user rotates their API keys, call `ClearUserClients` to discard the cached clients. The next call to `GetRestClient` or `GetSocketClient` with fresh credentials will create new client instances.
+
+    ```csharp
+    // Clear all exchanges for user-1
+    provider.ClearUserClients("user-1");
+
+    // Or clear only a specific exchange
+    provider.ClearUserClients("user-1", exchange: "Binance");
+
+    // Then re-initialize with the new credentials
+    var newCredentials = new ExchangeCredentials
+    {
+        Binance = new BinanceCredentials("new-key", "new-secret"),
+    };
+    var refreshedClient = provider.GetRestClient("user-1", newCredentials);
+    ```
+  </Step>
+</Steps>
+
+## Full example
+
+```csharp
+using CryptoClients.Net.Clients;
+using CryptoClients.Net.Models;
+using Binance.Net.Objects.Options;
+using Kucoin.Net.Objects.Options;
+
+var provider = new ExchangeUserClientProvider();
+
+var user1Credentials = new ExchangeCredentials
+{
+    Binance = new BinanceCredentials("key-1", "secret-1"),
+    Kucoin  = new KucoinCredentials("key-1", "secret-1", "pass-1"),
+};
+var user2Credentials = new ExchangeCredentials
+{
+    Binance = new BinanceCredentials("key-2", "secret-2"),
+};
+
+// Pre-initialize both users
+provider.InitializeUserClient("user-1", user1Credentials, new Dictionary<string, string?>());
+provider.InitializeUserClient("user-2", user2Credentials, new Dictionary<string, string?>());
+
+// Get isolated REST clients
+var restClient1 = provider.GetRestClient("user-1");
+var restClient2 = provider.GetRestClient("user-2");
+
+// Get isolated WebSocket clients
+var socketClient1 = provider.GetSocketClient("user-1");
+var socketClient2 = provider.GetSocketClient("user-2");
+
+Console.WriteLine("Clients ready for user-1 and user-2");
+```
+
+<Tip>
+  The user identifier is an arbitrary string — it can be a database primary key, a UUID, a username, or any value that uniquely identifies a user in your system.
+</Tip>

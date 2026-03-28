@@ -1,0 +1,327 @@
+---
+title: "WebSocket subscriptions"
+description: "Subscribe to live market data streams across multiple exchanges"
+---
+
+`ExchangeSocketClient` exposes a unified API for subscribing to live data from any supported exchange. Every `SubscribeTo*` method can target a single exchange or fan out to multiple exchanges in one call. Handlers receive a `DataEvent<T>` which carries the payload along with the source exchange name and timestamp.
+
+## Setup
+
+```csharp
+using CryptoClients.Net;
+using CryptoExchange.Net.SharedApis;
+
+// Direct construction
+var socketClient = new ExchangeSocketClient();
+
+// Or inject IExchangeSocketClient via DI
+// builder.Services.AddCryptoClients();
+```
+
+---
+
+<Tabs>
+  <Tab title="Public subscriptions">
+    ## Ticker updates
+
+    Subscribe to the latest price and 24 h statistics for a symbol.
+
+    ```csharp
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+    // Single exchange
+    var result = await socketClient.SubscribeToTickerUpdatesAsync(
+        "Binance",
+        new SubscribeTickerRequest(symbol),
+        data => Console.WriteLine($"[{data.Exchange}] {data.Data.Symbol} last: {data.Data.LastPrice}"));
+
+    // Multiple exchanges in one call
+    var results = await socketClient.SubscribeToTickerUpdatesAsync(
+        new SubscribeTickerRequest(symbol),
+        data => Console.WriteLine($"[{data.Exchange}] {data.Data.Symbol} last: {data.Data.LastPrice}"),
+        exchanges: ["Binance", "Bybit", "OKX"]);
+
+    foreach (var r in results.Where(r => !r.Success))
+        Console.WriteLine($"{r.Exchange} error: {r.Error}");
+    ```
+
+    ### All-ticker subscription
+
+    Some exchanges support subscribing to all symbols at once:
+
+    ```csharp
+    var result = await socketClient.SubscribeToAllTickerUpdatesAsync(
+        "Binance",
+        new SubscribeAllTickersRequest(),
+        data =>
+        {
+            foreach (var ticker in data.Data)
+                Console.WriteLine($"{ticker.Symbol}: {ticker.LastPrice}");
+        });
+    ```
+
+    ## Trade updates
+
+    Subscribe to a stream of public trades (fills) for a symbol. The handler receives a `SharedTrade[]` batch.
+
+    ```csharp
+    var symbol = new SharedSymbol(TradingMode.PerpetualLinear, "ETH", "USDT");
+
+    // Subscribe on multiple exchanges — from the StreamTrades example
+    var results = await socketClient.SubscribeToTradeUpdatesAsync(
+        new SubscribeTradeRequest(symbol),
+        update =>
+        {
+            foreach (var trade in update.Data)
+                Console.WriteLine($"{update.Exchange,-10} | {trade.Quantity} @ {trade.Price}");
+        },
+        exchanges: ["Binance", "HTX", "OKX"]);
+
+    foreach (var r in results)
+        Console.WriteLine($"{r.Exchange} subscribe: {(r.Success ? "OK" : r.Error)}");
+    ```
+
+    ## Kline / candlestick updates
+
+    ```csharp
+    var symbol = new SharedSymbol(TradingMode.Spot, "BTC", "USDT");
+
+    var result = await socketClient.SubscribeToKlineUpdatesAsync(
+        "Binance",
+        new SubscribeKlineRequest(symbol, SharedKlineInterval.OneMinute),
+        update => Console.WriteLine(
+            $"[{update.Exchange}] {update.Data.OpenTime:HH:mm} " +
+            $"O:{update.Data.OpenPrice} H:{update.Data.HighPrice} " +
+            $"L:{update.Data.LowPrice} C:{update.Data.ClosePrice}"));
+
+    // Subscribe across exchanges
+    var results = await socketClient.SubscribeToKlineUpdatesAsync(
+        new SubscribeKlineRequest(symbol, SharedKlineInterval.FiveMinutes),
+        update => Console.WriteLine($"[{update.Exchange}] Close: {update.Data.ClosePrice}"),
+        exchanges: ["Bybit", "Kraken", "OKX"]);
+    ```
+
+    ## Order book updates
+
+    Receive periodic order book snapshots (not a locally managed book — use `ExchangeOrderBookFactory` for that).
+
+    ```csharp
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+    var result = await socketClient.SubscribeToOrderBookUpdatesAsync(
+        "Binance",
+        new SubscribeOrderBookRequest(symbol, 20),
+        update =>
+        {
+            var book = update.Data;
+            Console.WriteLine($"[{update.Exchange}] Asks: {book.Asks.Count()}, Bids: {book.Bids.Count()}");
+        });
+    ```
+
+    ## Book ticker updates
+
+    Subscribe to best ask / best bid price updates (lower bandwidth than a full order book):
+
+    ```csharp
+    var result = await socketClient.SubscribeToBookTickerUpdatesAsync(
+        "Bybit",
+        new SubscribeBookTickerRequest(symbol),
+        update => Console.WriteLine(
+            $"[{update.Exchange}] Best ask: {update.Data.BestAskPrice} / Best bid: {update.Data.BestBidPrice}"));
+    ```
+  </Tab>
+
+  <Tab title="Private subscriptions">
+    Private subscriptions require API credentials to be set on the client. Some exchanges (such as Binance) also require a **listen key** obtained via the REST API before connecting.
+
+    ## Configure credentials
+
+    ```csharp
+    using CryptoClients.Net.Models;
+
+    var socketClient = new ExchangeSocketClient();
+    socketClient.SetApiCredentials(new ExchangeCredentials
+    {
+        Binance = new BinanceCredentials("api-key", "api-secret"),
+        Bybit   = new BybitCredentials("api-key", "api-secret"),
+        OKX     = new OKXCredentials("api-key", "api-secret", "passphrase"),
+    });
+    ```
+
+    ## Listen keys
+
+    Exchanges that use listen keys (e.g. Binance) require you to obtain one from the REST API before subscribing. Pass the result to the subscribe call via `listenKeyResults`:
+
+    ```csharp
+    using CryptoClients.Net;
+
+    var restClient = new ExchangeRestClient();
+
+    // Obtain a listen key from Binance
+    var listenKeyResult = await restClient.Binance.SpotApi.Account.StartUserStreamAsync();
+
+    // Pass it to the subscription
+    var sub = await socketClient.SubscribeToBalanceUpdatesAsync(
+        "Binance",
+        new SubscribeBalancesRequest(),
+        update =>
+        {
+            foreach (var balance in update.Data)
+                Console.WriteLine($"[{update.Exchange}] {balance.Asset}: {balance.Available}");
+        },
+        listenKeyResults: [listenKeyResult.As(listenKeyResult.Data)]);
+    ```
+
+    <Note>
+      When subscribing across multiple exchanges at once, the `listenKeyResults` array can contain results for several exchanges. Each result carries the exchange name so the correct key is routed automatically.
+    </Note>
+
+    ## Balance updates
+
+    ```csharp
+    var sub = await socketClient.SubscribeToBalanceUpdatesAsync(
+        "Bybit",
+        new SubscribeBalancesRequest(),
+        update =>
+        {
+            foreach (var balance in update.Data)
+                Console.WriteLine($"[{update.Exchange}] {balance.Asset}: {balance.Available} available");
+        });
+    ```
+
+    Multi-exchange balance subscription:
+
+    ```csharp
+    var results = await socketClient.SubscribeToBalanceUpdatesAsync(
+        new SubscribeBalancesRequest(),
+        update =>
+        {
+            foreach (var balance in update.Data)
+                Console.WriteLine($"[{update.Exchange}] {balance.Asset}: {balance.Available}");
+        },
+        exchanges: ["Bybit", "OKX", "Kraken"]);
+    ```
+
+    ## Spot order updates
+
+    ```csharp
+    var sub = await socketClient.SubscribeToSpotOrderUpdatesAsync(
+        "Binance",
+        new SubscribeSpotOrderRequest(),
+        update =>
+        {
+            foreach (var order in update.Data)
+                Console.WriteLine(
+                    $"[{update.Exchange}] Order {order.OrderId}: " +
+                    $"{order.Symbol} {order.Side} {order.Quantity} @ {order.Price} — {order.Status}");
+        });
+    ```
+
+    ## Futures order updates
+
+    ```csharp
+    var sub = await socketClient.SubscribeToFuturesOrderUpdatesAsync(
+        "Bybit",
+        new SubscribeFuturesOrderRequest(TradingMode.PerpetualLinear),
+        update =>
+        {
+            foreach (var order in update.Data)
+                Console.WriteLine(
+                    $"[{update.Exchange}] Futures order {order.OrderId}: {order.Status}");
+        });
+    ```
+
+    ## User trade updates
+
+    ```csharp
+    var sub = await socketClient.SubscribeToUserTradeUpdatesAsync(
+        "OKX",
+        new SubscribeUserTradeRequest(TradingMode.Spot),
+        update =>
+        {
+            foreach (var trade in update.Data)
+                Console.WriteLine(
+                    $"[{update.Exchange}] Fill: {trade.Symbol} {trade.Quantity} @ {trade.Price}");
+        });
+    ```
+
+    ## Position updates
+
+    ```csharp
+    var sub = await socketClient.SubscribeToPositionUpdatesAsync(
+        "Binance",
+        new SubscribePositionRequest(TradingMode.PerpetualLinear),
+        update =>
+        {
+            foreach (var position in update.Data)
+                Console.WriteLine(
+                    $"[{update.Exchange}] {position.Symbol}: {position.Quantity} contracts");
+        });
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## The DataEvent&lt;T&gt; handler pattern
+
+Every subscription handler receives a `DataEvent<T>`. Key properties:
+
+| Property | Type | Description |
+|---|---|---|
+| `Data` | `T` | The deserialized payload |
+| `Exchange` | `string` | The name of the exchange that sent this update |
+| `Timestamp` | `DateTime` | UTC time the update was received |
+| `OriginalData` | `string?` | Raw JSON (only when `OutputOriginalData` is enabled) |
+
+```csharp
+Action<DataEvent<SharedSpotTicker>> handler = update =>
+{
+    string exchange  = update.Exchange;
+    DateTime time    = update.Timestamp;
+    SharedSpotTicker ticker = update.Data;
+
+    Console.WriteLine($"[{time:HH:mm:ss}] [{exchange}] {ticker.Symbol}: {ticker.LastPrice}");
+};
+```
+
+---
+
+## Managing subscriptions
+
+`SubscribeTo*` methods return `ExchangeResult<UpdateSubscription>` (single exchange) or `ExchangeResult<UpdateSubscription>[]` (multi-exchange). Use `UpdateSubscription` to close individual subscriptions:
+
+```csharp
+var result = await socketClient.SubscribeToTickerUpdatesAsync(
+    "Binance",
+    new SubscribeTickerRequest(symbol),
+    data => Console.WriteLine(data.Data.LastPrice));
+
+if (result.Success)
+{
+    var subscription = result.Data;
+
+    // Close just this subscription
+    await subscription.CloseAsync();
+}
+```
+
+### Unsubscribe everything
+
+To disconnect all subscriptions and close all WebSocket connections at once:
+
+```csharp
+await socketClient.UnsubscribeAllAsync();
+```
+
+### Monitoring connection state
+
+```csharp
+Console.WriteLine($"Active connections:   {socketClient.CurrentConnections}");
+Console.WriteLine($"Active subscriptions: {socketClient.CurrentSubscriptions}");
+Console.WriteLine($"Incoming data rate:   {socketClient.IncomingKbps:F1} kb/s");
+```
+
+<Warning>
+  WebSocket connections are multiplexed — multiple subscriptions share a single connection where the exchange protocol allows it. Calling `CloseAsync` on an `UpdateSubscription` only unsubscribes that stream; it does not necessarily close the underlying connection if other subscriptions are still active on it.
+</Warning>

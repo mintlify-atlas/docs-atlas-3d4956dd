@@ -1,0 +1,79 @@
+---
+title: "CryptoClients.Net"
+description: "A unified C# SDK for accessing 26+ cryptocurrency exchange APIs through a single, exchange-agnostic interface."
+---
+
+CryptoClients.Net provides a single entry point for connecting to dozens of cryptocurrency exchanges via REST and WebSocket. Write your trading logic once using shared interfaces, then run it across Binance, Bybit, Kraken, OKX, and many more — without changing a line of code.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get your first cross-exchange price ticker working in minutes
+  </Card>
+  <Card title="Installation" icon="cube" href="/installation">
+    Install via NuGet and set up your project
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts/rest-client">
+    Understand REST clients, socket clients, and shared interfaces
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/exchange-rest-client">
+    Explore the full public API surface
+  </Card>
+</CardGroup>
+
+## What you can do
+
+<CardGroup cols={2}>
+  <Card title="Multi-exchange requests" icon="arrows-split-up-and-left" href="/concepts/multi-exchange">
+    Query the same data from multiple exchanges in a single call
+  </Card>
+  <Card title="WebSocket subscriptions" icon="bolt" href="/guides/websocket-subscriptions">
+    Subscribe to live data streams across multiple exchanges simultaneously
+  </Card>
+  <Card title="Shared interfaces" icon="plug" href="/concepts/shared-interfaces">
+    Write exchange-agnostic code using common interfaces
+  </Card>
+  <Card title="Multi-user support" icon="users" href="/guides/multi-user">
+    Manage isolated client instances per user with ExchangeUserClientProvider
+  </Card>
+</CardGroup>
+
+## Supported exchanges
+
+CryptoClients.Net supports **26 centralized and decentralized exchanges**, plus additional platform integrations:
+
+- **CEX**: Binance, BingX, Bitfinex, Bitget, BitMart, BitMEX, Bitstamp, BloFin, Bybit, Coinbase, CoinEx, CoinW, Crypto.com, DeepCoin, Gate.io, HTX, Kraken, Kucoin, Mexc, OKX, Toobit, Upbit, WhiteBit, XT
+- **DEX**: Aster, HyperLiquid
+- **Platforms**: CoinGecko, Polymarket
+
+<Card title="See all supported exchanges" icon="list" href="/exchanges/overview">
+  View the complete list with exchange types and referral links
+</Card>
+
+## Getting started
+
+<Steps>
+  <Step title="Install the package">
+    ```bash
+    dotnet add package CryptoClients.Net
+    ```
+  </Step>
+  <Step title="Create a client">
+    ```csharp
+    var client = new ExchangeRestClient();
+    ```
+  </Step>
+  <Step title="Make your first request">
+    ```csharp
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+    var results = await client.GetSpotTickerAsync(
+        new GetTickerRequest(symbol),
+        ["Binance", "Bybit", "OKX"]);
+
+    foreach (var result in results)
+    {
+        if (result.Success)
+            Console.WriteLine($"{result.Exchange}: {result.Data.LastPrice}");
+    }
+    ```
+  </Step>
+</Steps>

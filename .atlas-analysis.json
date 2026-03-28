@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "CryptoClients.Net",
+  "projectType": "sdk-library",
+  "projectName": "CryptoClients.Net",
+  "projectDescription": "A unified C# SDK providing access to 26+ cryptocurrency exchange REST and WebSocket APIs through a single, exchange-agnostic interface.",
   "theme": "luma",
-  "colors": {
-    "primary": "#0EA5E9",
-    "light": "#E0F2FE",
-    "dark": "#0369A1"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/JKorf/CryptoClients.Net"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/JKorf/CryptoClients.Net"
-    }
-  },
+  "primaryColor": "#0EA5E9",
+  "lightColor": "#E0F2FE",
+  "darkColor": "#0369A1",
   "navigation": {
     "tabs": [
       {
@@ -95,5 +83,34 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Unified ExchangeRestClient and ExchangeSocketClient for 26+ exchanges",
+    "Exchange-agnostic shared interfaces (ISpotTickerRestClient, IFuturesOrderRestClient, etc.)",
+    "Multi-exchange requests and subscriptions in a single call",
+    "Automatic WebSocket reconnection management",
+    "Client-side rate limiting with configurable behavior",
+    "Client-side order book support via ExchangeOrderBookFactory",
+    "Multi-user client management via ExchangeUserClientProvider",
+    "Dependency injection support via AddCryptoClients()",
+    "Strongly typed models and enum mappings",
+    "Support for multiple API environments per exchange"
+  ],
+  "publicApiSurface": [
+    "ExchangeRestClient",
+    "ExchangeSocketClient",
+    "ExchangeUserClientProvider",
+    "ExchangeOrderBookFactory",
+    "ExchangeTrackerFactory",
+    "IExchangeRestClient",
+    "IExchangeSocketClient",
+    "IExchangeUserClientProvider",
+    "IExchangeOrderBookFactory",
+    "IExchangeTrackerFactory",
+    "ExchangeCredentials",
+    "GlobalExchangeOptions",
+    "Exchanges.All",
+    "Platforms.All",
+    "ServiceCollectionExtensions.AddCryptoClients()"
+  ]
 }

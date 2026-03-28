@@ -1,0 +1,232 @@
+---
+title: "REST Client"
+description: "Using ExchangeRestClient to access exchange REST APIs"
+---
+
+`ExchangeRestClient` is the main entry point for all REST API interactions across the 26+ supported exchanges. It exposes every exchange-specific client as a property, while also providing shared cross-exchange interfaces and unified multi-exchange request methods.
+
+## Construction
+
+<Tabs>
+  <Tab title="Direct construction">
+    ```csharp
+    // Default construction — all exchange clients are created with default options
+    IExchangeRestClient client = new ExchangeRestClient();
+    ```
+  </Tab>
+  <Tab title="With options">
+    ```csharp
+    // Configure global and per-exchange options at construction time
+    IExchangeRestClient client = new ExchangeRestClient(
+        globalOptions: options =>
+        {
+            options.OutputOriginalData = true;
+            options.RequestTimeout = TimeSpan.FromSeconds(10);
+        },
+        binanceRestOptions: options =>
+        {
+            options.ApiCredentials = new BinanceCredentials("key", "secret");
+        }
+    );
+    ```
+  </Tab>
+  <Tab title="Dependency injection">
+    ```csharp
+    // Register all clients in one call
+    builder.Services.AddCryptoClients(options =>
+    {
+        options.ApiCredentials = new ExchangeCredentials
+        {
+            Binance = new BinanceCredentials("BinanceKey", "BinanceSecret"),
+            Kucoin  = new KucoinCredentials("KucoinKey", "KucoinSecret", "KucoinPassphrase"),
+            OKX     = new OKXCredentials("OKXKey", "OKXSecret", "OKXPassphrase")
+        };
+    });
+
+    // Inject IExchangeRestClient wherever needed
+    public class TradingBot
+    {
+        public TradingBot(IExchangeRestClient restClient) { }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Always depend on `IExchangeRestClient` rather than the concrete `ExchangeRestClient` class to keep your code testable and DI-friendly.
+</Note>
+
+## Usage patterns
+
+`ExchangeRestClient` supports four distinct usage patterns, each suited to different scenarios.
+
+<Steps>
+  <Step title="Exchange-specific clients (direct)">
+    Use the individual exchange libraries directly when you need access to the full exchange-specific API surface — proprietary endpoints, exchange-specific models, or features not covered by the shared interfaces.
+
+    ```csharp
+    var kucoinClient = new KucoinRestClient();
+    var binanceClient = new BinanceRestClient();
+
+    var binanceTicker = await binanceClient.SpotApi.ExchangeData.GetTickerAsync("ETHUSDT");
+    var kucoinTicker  = await kucoinClient.SpotApi.ExchangeData.GetTickerAsync("ETH-USDT");
+    ```
+  </Step>
+  <Step title="Exchange clients through the main client">
+    Use `ExchangeRestClient` as a single entry point when you need exchange-specific clients but want a single object to manage them all. Each exchange property returns the full, unabstracted client for that exchange.
+
+    ```csharp
+    var client = new ExchangeRestClient();
+
+    var binanceTicker = await client.Binance.SpotApi.ExchangeData.GetTickerAsync("ETHUSDT");
+    var kucoinTicker  = await client.Kucoin.SpotApi.ExchangeData.GetTickerAsync("ETH-USDT");
+    var bybitTicker   = await client.Bybit.V5Api.ExchangeData.GetSpotTickerAsync("ETHUSDT");
+    ```
+
+    All 26 exchanges are accessible as typed properties: `client.Binance`, `client.Bybit`, `client.OKX`, `client.Kraken`, `client.HTX`, `client.GateIo`, and so on.
+  </Step>
+  <Step title="Shared client interfaces">
+    Use the shared `CryptoExchange.Net` interfaces to write exchange-agnostic logic. A method that accepts `ISpotTickerRestClient` works the same way regardless of which exchange backs it.
+
+    ```csharp
+    async Task<ExchangeWebResult<SharedSpotTicker>> GetTickerAsync(
+        ISpotTickerRestClient client,
+        SharedSymbol symbol)
+        => await client.GetSpotTickerAsync(new GetTickerRequest(symbol));
+
+    var client = new ExchangeRestClient();
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+    // The same method works for any exchange
+    var binanceResult = await GetTickerAsync(client.Binance.SpotApi.SharedClient, symbol);
+    var kucoinResult  = await GetTickerAsync(client.Kucoin.SpotApi.SharedClient, symbol);
+    ```
+
+    See [Shared interfaces](/concepts/shared-interfaces) for the full list of available interfaces.
+  </Step>
+  <Step title="Multi-exchange requests">
+    Query the same data from multiple exchanges in a single call. `ExchangeRestClient` dispatches the requests concurrently and collects the results.
+
+    ```csharp
+    var client = new ExchangeRestClient();
+    var symbol = new SharedSymbol(TradingMode.Spot, "ETH", "USDT");
+
+    var tickers = await client.GetSpotTickerAsync(
+        new GetTickerRequest(symbol),
+        [Exchange.Binance, Exchange.Kucoin, Exchange.OKX]);
+
+    foreach (var result in tickers)
+    {
+        if (!result.Success)
+            Console.WriteLine($"{result.Exchange} error: {result.Error}");
+        else
+            Console.WriteLine($"{result.Exchange} last price: {result.Data.LastPrice}");
+    }
+    ```
+
+    See [Multi-exchange requests](/concepts/multi-exchange) for all variants including `IAsyncEnumerable` streaming.
+  </Step>
+</Steps>
+
+## Exchange properties
+
+Every supported exchange is exposed as a strongly-typed property on `IExchangeRestClient`:
+
+```csharp
+// Centralized exchanges
+client.Aster       // IAsterRestClient
+client.Binance     // IBinanceRestClient
+client.BingX       // IBingXRestClient
+client.Bitfinex    // IBitfinexRestClient
+client.Bitget      // IBitgetRestClient
+client.BitMart     // IBitMartRestClient
+client.BitMEX      // IBitMEXRestClient
+client.Bitstamp    // IBitstampRestClient
+client.BloFin      // IBloFinRestClient
+client.Bybit       // IBybitRestClient
+client.Coinbase    // ICoinbaseRestClient
+client.CoinEx      // ICoinExRestClient
+client.CoinW       // ICoinWRestClient
+client.CryptoCom   // ICryptoComRestClient
+client.DeepCoin    // IDeepCoinRestClient
+client.GateIo      // IGateIoRestClient
+client.HTX         // IHTXRestClient
+client.HyperLiquid // IHyperLiquidRestClient
+client.Kraken      // IKrakenRestClient
+client.Kucoin      // IKucoinRestClient
+client.Mexc        // IMexcRestClient
+client.OKX         // IOKXRestClient
+client.Toobit      // IToobitRestClient
+client.Upbit       // IUpbitRestClient
+client.WhiteBit    // IWhiteBitRestClient
+client.XT          // IXTRestClient
+
+// Additional platform integrations (available on ExchangeRestClient, not on IExchangeRestClient interface)
+client.CoinGecko   // ICoinGeckoRestClient  (concrete class only)
+client.Polymarket  // IPolymarketRestClient
+```
+
+## Key shared REST methods
+
+`IExchangeRestClient` exposes unified request methods that work across all exchanges. Each method has three variants — single exchange, `Task` array (all results at once), and `IAsyncEnumerable` (streaming as results arrive).
+
+<CodeGroup>
+```csharp Spot ticker (single exchange)
+Task<ExchangeWebResult<SharedSpotTicker>> GetSpotTickerAsync(
+    string exchange,
+    GetTickerRequest request,
+    CancellationToken ct = default);
+```
+
+```csharp Spot ticker (all exchanges, Task array)
+Task<ExchangeWebResult<SharedSpotTicker>[]> GetSpotTickerAsync(
+    GetTickerRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+
+```csharp Klines (single exchange)
+Task<ExchangeWebResult<SharedKline[]>> GetKlinesAsync(
+    string exchange,
+    GetKlinesRequest request,
+    PageRequest? pageRequest = null,
+    CancellationToken ct = default);
+```
+
+```csharp Klines (all exchanges, IAsyncEnumerable)
+IAsyncEnumerable<ExchangeWebResult<SharedKline[]>> GetKlinesAsyncEnumerable(
+    GetKlinesRequest request,
+    IEnumerable<string>? exchanges = null,
+    CancellationToken ct = default);
+```
+</CodeGroup>
+
+## Utility methods
+
+```csharp
+// Total REST requests made across all underlying clients
+int total = client.TotalRequestsMade;
+
+// Translate a SharedSymbol into an exchange-native symbol name
+string? symbol = client.GetSymbolName("Binance", new SharedSymbol(TradingMode.Spot, "ETH", "USDT"));
+
+// Generate a client order id for a specific exchange and trading mode
+string? orderId = client.GenerateClientOrderId(TradingMode.Spot, "Bybit");
+
+// Get all shared-interface clients for one exchange (optionally filtered by trading mode)
+IEnumerable<ISharedClient> shared = client.GetExchangeSharedClients("Kraken", TradingMode.Spot);
+```
+
+## Setting credentials at runtime
+
+```csharp
+// Set credentials for multiple exchanges at once
+client.SetApiCredentials(new ExchangeCredentials
+{
+    Binance = new BinanceCredentials("key", "secret"),
+    OKX     = new OKXCredentials("key", "secret", "passphrase")
+});
+
+// Set credentials for one exchange using dynamic credentials
+client.SetApiCredentials("Bybit", new DynamicCredentials(TradingMode.Spot, "key", "secret"));
+```
